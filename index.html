@@ -303,6 +303,12 @@
       if (outroState === 'laughing' || outroState === 'fade') return;
       outroState = 'laughing';
       outroElapsed = 0;
+      const setLaughDirection = entity => {
+        entity.laughDirection = Math.abs(entity.vx) > 0.01 ? Math.sign(entity.vx) : (entity.x <= W / 2 ? -1 : 1);
+        entity.laughPhase = entity.x * 0.037 + entity.y * 0.021;
+      };
+      targetBalls.forEach(setLaughDirection);
+      setLaughDirection(ball);
       targetBalls.forEach(target => triggerImpact(target, 0.9));
       triggerImpact(ball, 1);
       playCollectiveLaugh();
@@ -626,13 +632,16 @@
       targetBalls.forEach(target => {
         const drawScale = target.scale;
         const drawY = target.y;
+        const laughSway = (outroState === 'laughing' || outroState === 'fade')
+          ? Math.sin(outroElapsed * 0.024 + target.laughPhase) * 2.5 * target.laughDirection
+          : 0;
         ctx.save();
         ctx.globalAlpha = 0.22;
         ctx.fillStyle = '#684238';
         ctx.beginPath(); ctx.ellipse(target.x + 3, target.y + 6, (TARGET_RADIUS + 2) * drawScale, (TARGET_RADIUS - 2) * drawScale, 0, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
         ctx.save();
-        ctx.translate(target.x, drawY);
+        ctx.translate(target.x + laughSway, drawY);
         ctx.rotate(target.rotation);
         const laughReady = smallLaughImage.complete && smallLaughImage.naturalWidth > 0;
         const holdLaughReady = smallHoldLaughImage.complete && smallHoldLaughImage.naturalWidth > 0;
@@ -671,6 +680,9 @@
     function drawBall() {
       const drawScale = ball.scale;
       const drawY = ball.y;
+      const laughSway = (outroState === 'laughing' || outroState === 'fade')
+        ? Math.sin(outroElapsed * 0.024 + ball.laughPhase) * 2.5 * ball.laughDirection
+        : 0;
       ctx.save();
       ctx.globalAlpha = 0.22;
       ctx.fillStyle = '#684238';
@@ -681,7 +693,7 @@
       ctx.beginPath(); ctx.arc(ball.x, drawY, (ball.r + 9) * drawScale, 0, Math.PI * 2); ctx.stroke();
       ctx.strokeStyle = '#ffce52'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(ball.x, drawY, (ball.r + 14) * drawScale, 0, Math.PI * 2); ctx.stroke();
-      ctx.translate(ball.x, drawY);
+      ctx.translate(ball.x + laughSway, drawY);
       ctx.rotate(ball.rotation);
       const laughReady = laughImage.complete && laughImage.naturalWidth > 0;
       const holdLaughReady = holdLaughImage.complete && holdLaughImage.naturalWidth > 0;
