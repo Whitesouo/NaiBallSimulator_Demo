@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>奶龙弹球 Demo</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Microsoft YaHei", sans-serif; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: #17131b; color: #fff4df;
+    }
+    .wrap { width: min(92vw, 680px); text-align: center; }
+    h1 { margin: 0 0 10px; letter-spacing: 2px; font-size: 24px; }
+    .hint { margin: 0 0 14px; color: #fff0c2; font-size: 26px; font-weight: 700; letter-spacing: 1px; text-shadow: 2px 2px 0 #4b3031; }
+    canvas {
+      display: block; width: min(92vw, 600px); height: auto; aspect-ratio: 1 / 1; max-width: 100%;
+      margin: 0 auto; background: #f2c978; border: 8px solid #4b3031;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+      box-shadow: 0 12px 0 #0c0a0f, 0 18px 30px #0008;
+      touch-action: none;
+    }
+    .status { margin-top: 14px; color: #fff0c2; font-size: 26px; font-weight: 700; letter-spacing: 1px; text-shadow: 2px 2px 0 #4b3031; min-height: 34px; }
+    .audio-control { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; color: #ffe1a4; font-size: 13px; }
+    .audio-control input { width: 180px; accent-color: #ff8f65; }
+    button { margin-top: 8px; padding: 8px 16px; border: 0; background: #ff8f65; color: #27151a; font-weight: 700; cursor: pointer; }
+    button:hover { background: #ffb178; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>奶球模拟器 Demo</h1>
+    <p class="hint">拖动奶球以发射奶球</p>
+    <canvas id="game" width="600" height="600"></canvas>
+    <div id="status" class="status">等待发射</div>
+    <label class="audio-control">
+      大笑音量
+      <input id="volume" type="range" min="0" max="1" step="0.01" value="0.10" />
+      <span id="volumeText">10%</span>
+    </label>
+    <label class="audio-control">
+      BGM 音量
+      <input id="bgmVolume" type="range" min="0" max="1" step="0.01" value="0.35" />
+      <span id="bgmVolumeText">35%</span>
+    </label>
+    <label class="audio-control">
+      阻尼强度
+      <input id="damping" type="range" min="25" max="250" step="1" value="100" />
+      <span id="dampingText">100%</span>
+    </label>
+    <label class="audio-control">
+      <input id="hellMode" type="checkbox" />
+      地狱模式（阻尼为 0）
+    </label>
+    <button id="stopAll" type="button">停止所有奶球</button>
+    <button id="reset" type="button">重新放置奶球</button>
+  </main>
+
+    <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const status = document.getElementById('status');
+    const gameWrap = document.querySelector('.wrap');
+    const volumeSlider = document.getElementById('volume');
+    const volumeText = document.getElementById('volumeText');
+    const bgmVolumeSlider = document.getElementById('bgmVolume');
+    const bgmVolumeText = document.getElementById('bgmVolumeText');
+    const dampingSlider = document.getElementById('damping');
+    const dampingText = document.getElementById('dampingText');
+    const hellMode = document.getElementById('hellMode');
+    const ballImage = new Image();
+    ballImage.src = 'Nai.png';
+    const smallBallImage = new Image();
+    smallBallImage.src = 'Nai_Small.png';
+    const laughImage = new Image();
+    laughImage.src = 'Nai_Laugh.png';
+    const smallLaughImage = new Image();
+    smallLaughImage.src = 'Nai_Laugh_Small.png';
+    const holdLaughImage = new Image();
+    holdLaughImage.src = 'Nai_Nolaugh.png';
+    const smallHoldLaughImage = new Image();
+    smallHoldLaughImage.src = 'Nai_Nolaugh_Samll.png';
+    const hologramImage = new Image();
+    hologramImage.src = 'BG.png';
+    const BALL_RADIUS = 28;
+    const TARGET_RADIUS = 30 * 0.75; // 桌面奶球缩小 25%
+    const PLAYER_MASS = 1;
+    const TARGET_MASS = 0.5; // 小奶球质量降低 50%
+    const MAX_LAUNCH_SPEED = 620 * 5;
+    const LAUNCH_DISTANCE_OFFSET = 7.5;
+    const TARGET_MAX_SPEED = MAX_LAUNCH_SPEED;
+    const STOP_SPEED = 10;
+    const BASE_DAMPING = 0.998674;
+    const MIN_SCALE_PUNCH = 0.7; // 缩放效果保底倍率
+    const MAX_SCALE_PUNCH = 1.1;
+    const MAIN_SCALE_MULTIPLIER = 1.25;
+    const SMALL_BALL_PLAYBACK_RATE = 2.0;
+    const BPM = 120;
+    const BEAT_INTERVAL = 60 / BPM;
+    const OUTRO_DURATION = 5800;
+    const BRAKE_DURATION = 3;
+    const IDLE_ROTATION_SPEED = 0.225;
+    const BACKGROUND_DRIFT_RANGE = 42;
+    const AUDIO_GAIN = 0.5;
+    const OBSTACLE_SPEED_MULTIPLIER = 2;
+    const OBSTACLE_WRAP_MARGIN = 80;
+    const WALL_SCALE_MULTIPLIER = 0.8;
+    const BASE_MIN_WALL_IMPACT_STRENGTH = 0.45;
+    const MIN_WALL_IMPACT_STRENGTH = BASE_MIN_WALL_IMPACT_STRENGTH * WALL_SCALE_MULTIPLIER;
+    const MIN_BALL_IMPACT_STRENGTH = MIN_WALL_IMPACT_STRENGTH;
+    const COLLISION_BOOST = 0.05; // 球球碰撞后额外注入 2.5% 冲量
+    const OBSTACLE_SOUND_COOLDOWN = 5000;
+    const targetSpawns = [
+      { x: 115, y: 125 }, { x: 255, y: 105 }, { x: 430, y: 130 },
+      { x: 505, y: 270 }, { x: 390, y: 385 }, { x: 210, y: 330 },
+      { x: 95, y: 445 }, { x: 500, y: 500 }
+    ];
+    const targetBalls = targetSpawns.map(point => ({ ...point, vx: 0, vy: 0, impact: 0, jump: 0, scale: 1, rotation: 0, laughing: false }));
+    const obstacleBlueprints = [
+      { x: 170, y: 220, size: 24, sides: 3, color: '#d96f63', phase: 0.3, drift: 10 },
+      { x: 345, y: 175, size: 28, sides: 4, color: '#6ea7b8', phase: 1.8, drift: 8 },
+      { x: 430, y: 345, size: 22, sides: 3, color: '#c8894d', phase: 3.1, drift: 12 },
+      { x: 165, y: 410, size: 30, sides: 4, color: '#8a789e', phase: 4.6, drift: 7 }
+    ];
+    const obstacles = obstacleBlueprints.map(obstacle => {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (22 + Math.random() * 14) * OBSTACLE_SPEED_MULTIPLIER;
+      return {
+        ...obstacle,
+        baseX: obstacle.x,
+        baseY: obstacle.y,
+        scale: 1 + Math.random(),
+        rotation: 0,
+        velocityX: Math.cos(angle) * speed,
+        velocityY: Math.sin(angle) * speed,
+        targetSoundAt: targetBalls.map(() => -Infinity),
+        mainSoundAt: -Infinity
+      };
+    });
+    // 单次最多允许 50 个笑声音源同时存在；超出后由最早开始播放的音源让位。
+    const MAX_LAUGH_VOICES = 30;
+    const laughSources = [
+      'SFX_Nai_Laugh.mp3'
+    ];
+    const laughPool = Array.from({ length: MAX_LAUGH_VOICES }, (_, index) => {
+      const audio = new Audio(laughSources[index % laughSources.length]);
+      audio.preload = 'auto';
+      // 关闭浏览器的音高补偿，让 playbackRate = 2 真正升高一个八度。
+      audio.preservesPitch = false;
+      audio.mozPreservesPitch = false;
+      audio.webkitPreservesPitch = false;
+      audio.volume = Number(volumeSlider.value);
+      return { audio, startedAt: 0 };
+    });
+    let laughFadeTimer = 0;
+    let laughStartTimers = [];
+    const bgm = new Audio('BGM_zhiwudazhanjiangshi.mp3');
+    bgm.loop = true;
+    bgm.preload = 'auto';
+    bgm.volume = Number(bgmVolumeSlider.value) * AUDIO_GAIN;
+    let bgmStarted = false;
+    let beatElapsed = 0;
+    let beatIndex = -1;
+    let beatPulse = 0;
+    let barPulse = 0;
+    let outroState = 'idle';
+    let outroElapsed = 0;
+    let outroFlash = 0;
+    let braking = false;
+    let brakeElapsed = 0;
+    let backgroundTime = 0;
+    let backgroundOffsetX = 0;
+    let backgroundOffsetY = 0;
+    let backgroundTargetX = 0;
+    let backgroundTargetY = 0;
+    let backgroundNextShift = 1.5;
+    const W = canvas.width, H = canvas.height;
+    const ball = { x: W / 2, y: H / 2, r: BALL_RADIUS, vx: 0, vy: 0, moving: false, impact: 0, jump: 0, scale: 1, rotation: 0, laughing: false };
+    let aiming = false;
+    let aimX = ball.x, aimY = ball.y;
+    let lastTime = performance.now();
+    let lastCollisionSoundAt = -Infinity;
+    const wallRipples = [];
+
+    function spawnWallRipple(x, y) {
+      wallRipples.push({ x, y, radius: 8, alpha: 0.9 });
+    }
+
+    function updateWallRipples(dt) {
+      wallRipples.forEach(ripple => {
+        ripple.radius += dt * 270;
+        ripple.alpha -= dt * 2.4;
+      });
+      for (let i = wallRipples.length - 1; i >= 0; i--) {
+        if (wallRipples[i].alpha <= 0) wallRipples.splice(i, 1);
+      }
+    }
+
+    function pointerPosition(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - rect.left) * W / rect.width,
+        y: (event.clientY - rect.top) * H / rect.height
+      };
+    }
+
+    function playBounce(playbackRate = 1) {
+      // 优先使用空闲通道；全部占用时，新的笑声顶掉最早开始的那一个。
+      clearInterval(laughFadeTimer);
+      const now = performance.now();
+      const voice = laughPool.find(item => item.audio.paused || item.audio.ended)
+        || laughPool.reduce((oldest, item) => item.startedAt < oldest.startedAt ? item : oldest);
+      const sound = voice.audio;
+      sound.pause();
+      sound.currentTime = 0;
+      sound.playbackRate = playbackRate;
+      sound.defaultPlaybackRate = playbackRate;
+      sound.preservesPitch = false;
+      sound.mozPreservesPitch = false;
+      sound.webkitPreservesPitch = false;
+      sound.volume = Number(volumeSlider.value);
+      voice.startedAt = now;
+      sound.play().then(() => {
+        // 部分浏览器在 play() 后会重置播放参数，再次强制设置。
+        sound.playbackRate = playbackRate;
+      }).catch(() => {
+        status.textContent = '音效被浏览器拦截，请先点击画布后再发射';
+      });
+    }
+
+    function playCollisionSound(playbackRate = 1) {
+      if (braking || outroState !== 'idle') return false;
+      const now = performance.now();
+      if (now - lastCollisionSoundAt < 55) return false;
+      lastCollisionSoundAt = now;
+      playBounce(playbackRate);
+      return true;
+    }
+
+    function triggerImpact(entity, strength = 1) {
+      entity.impact = Math.min(1, Math.max(entity.impact, strength));
+      const scalePunch = MIN_SCALE_PUNCH + (MAX_SCALE_PUNCH - MIN_SCALE_PUNCH) * strength;
+      const entityScaleMultiplier = entity === ball ? MAIN_SCALE_MULTIPLIER : 1;
+      entity.scale = Math.max(entity.scale, 1 + strength * scalePunch * entityScaleMultiplier);
+      entity.laughing = true;
+    }
+
+    function isAllBallsStopped() {
+      return !ball.moving && targetBalls.every(target => Math.hypot(target.vx, target.vy) < STOP_SPEED);
+    }
+
+    function playCollectiveLaugh() {
+      laughStartTimers.forEach(timer => clearTimeout(timer));
+      laughStartTimers = [];
+      laughPool.forEach(({ audio }, index) => {
+        audio.pause();
+        audio.currentTime = 0;
+        const playbackRate = index === 0 ? 1 : 1 + Math.random();
+        audio.playbackRate = playbackRate;
+        audio.defaultPlaybackRate = playbackRate;
+        audio.volume = Number(volumeSlider.value);
+        const delay = index === 0 ? 0 : Math.random() * 1000;
+        const timer = setTimeout(() => audio.play().catch(() => {}), delay);
+        laughStartTimers.push(timer);
+      });
+    }
+
+    function beginLaughOutro() {
+      if (outroState === 'laughing' || outroState === 'fade') return;
+      outroState = 'laughing';
+      outroElapsed = 0;
+      outroFlash = 1;
+      targetBalls.forEach(target => triggerImpact(target, 0.9));
+      triggerImpact(ball, 1);
+      playCollectiveLaugh();
+      status.textContent = '所有奶球一起大笑！';
+    }
+
+    function beginBallBrake() {
+      if (braking || outroState !== 'idle') return;
+      braking = true;
+      brakeElapsed = 0;
+      fadeOutAllLaughs(1000);
+      status.textContent = '大奶球停下，小奶球紧急刹车……';
+    }
+
+    function limitSpeed(entity, maxSpeed) {
+      const speed = Math.hypot(entity.vx, entity.vy);
+      if (speed <= maxSpeed || speed === 0) return;
+      const ratio = maxSpeed / speed;
+      entity.vx *= ratio;
+      entity.vy *= ratio;
+    }
+
+    function stopAllLaughs() {
+      clearInterval(laughFadeTimer);
+      laughStartTimers.forEach(timer => clearTimeout(timer));
+      laughStartTimers = [];
+      laughPool.forEach(({ audio }) => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.playbackRate = 1;
+        audio.volume = Number(volumeSlider.value);
+      });
+    }
+
+    function fadeOutAllLaughs(duration = 5000) {
+      clearInterval(laughFadeTimer);
+      const startTime = performance.now();
+      const startVolumes = laughPool.map(({ audio }) => audio.volume);
+      laughFadeTimer = setInterval(() => {
+        const progress = Math.min(1, (performance.now() - startTime) / duration);
+        laughPool.forEach(({ audio }, index) => {
+          audio.volume = startVolumes[index] * (1 - progress);
+        });
+        if (progress >= 1) stopAllLaughs();
+      }, 50);
+    }
+
+    function getDampingCoefficient() {
+      // 地狱模式：摩擦力为 0，所以速度保持不变，阻尼系数应为 1。
+      if (hellMode.checked) return 1;
+      const strength = Number(dampingSlider.value) / 100;
+      return 1 - (1 - BASE_DAMPING) * strength;
+    }
+
+    function startBgm() {
+      if (bgmStarted) return;
+      bgmStarted = true;
+      bgm.play().catch(() => {
+        bgmStarted = false;
+      });
+    }
+
+    function resolveBallCollision(first, second, firstRadius, secondRadius, firstMass = 1, secondMass = 1) {
+      const dx = first.x - second.x;
+      const dy = first.y - second.y;
+      const distance = Math.hypot(dx, dy);
+      const minDistance = firstRadius + secondRadius;
+      if (distance >= minDistance) return 0;
+
+      const nx = distance === 0 ? 1 : dx / distance;
+      const ny = distance === 0 ? 0 : dy / distance;
+      const overlap = minDistance - (distance || minDistance);
+      const totalMass = firstMass + secondMass;
+      first.x += nx * overlap * secondMass / totalMass;
+      first.y += ny * overlap * secondMass / totalMass;
+      second.x -= nx * overlap * firstMass / totalMass;
+      second.y -= ny * overlap * firstMass / totalMass;
+
+      const relativeNormalVelocity = (first.vx - second.vx) * nx + (first.vy - second.vy) * ny;
+      const impact = Math.max(0, -relativeNormalVelocity);
+      if (relativeNormalVelocity < 0) {
+        const restitution = 0.9;
+        const impulse = -(1 + restitution) * relativeNormalVelocity / (1 / firstMass + 1 / secondMass);
+        first.vx += impulse / firstMass * nx; first.vy += impulse / firstMass * ny;
+        second.vx -= impulse / secondMass * nx; second.vy -= impulse / secondMass * ny;
+
+        // 有意打破能量守恒，让碰撞后的球保持更久的运动。
+        const extraImpulse = impact * COLLISION_BOOST;
+        first.vx += extraImpulse / firstMass * nx; first.vy += extraImpulse / firstMass * ny;
+        second.vx -= extraImpulse / secondMass * nx; second.vy -= extraImpulse / secondMass * ny;
+      }
+      return impact;
+    }
+
+    volumeSlider.addEventListener('input', () => {
+      const volume = Number(volumeSlider.value);
+      volumeText.textContent = `${Math.round(volume * 100)}%`;
+      laughPool.forEach(({ audio }) => audio.volume = volume);
+    });
+
+    bgmVolumeSlider.addEventListener('input', () => {
+      const volume = Number(bgmVolumeSlider.value);
+      bgm.volume = volume * AUDIO_GAIN;
+      bgmVolumeText.textContent = `${Math.round(volume * 100)}%`;
+    });
+
+    dampingSlider.addEventListener('input', () => {
+      dampingText.textContent = `${dampingSlider.value}%`;
+    });
+
+    document.addEventListener('pointerdown', startBgm, { once: true });
+
+    canvas.addEventListener('pointerdown', event => {
+      startBgm();
+      const p = pointerPosition(event);
+      if (ball.moving || braking || outroState !== 'idle' || Math.hypot(p.x - ball.x, p.y - ball.y) > ball.r * 2) return;
+      canvas.setPointerCapture(event.pointerId);
+      aiming = true; aimX = p.x; aimY = p.y;
+      status.textContent = '拖动瞄准，松开即可发射';
+      laughPool.forEach(({ audio }) => audio.load()); // 解锁浏览器对本地音频的用户手势限制
+    });
+
+    canvas.addEventListener('pointermove', event => {
+      if (!aiming) return;
+      const p = pointerPosition(event);
+      aimX = p.x; aimY = p.y;
+    });
+
+    canvas.addEventListener('pointerup', event => {
+      if (!aiming) return;
+      aiming = false;
+      const p = pointerPosition(event);
+      const dx = ball.x - p.x, dy = ball.y - p.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 8) { status.textContent = '拖动距离太短'; return; }
+      const effectiveLength = Math.max(0, length - LAUNCH_DISTANCE_OFFSET);
+      const speed = Math.min(MAX_LAUNCH_SPEED, effectiveLength * 5.2);
+      ball.vx = dx / length * speed;
+      ball.vy = dy / length * speed;
+      ball.moving = true;
+      status.textContent = '众宾欢也……';
+    });
+
+    document.getElementById('reset').addEventListener('click', () => {
+      stopAllLaughs();
+      wallRipples.length = 0;
+      outroState = 'idle'; outroElapsed = 0; outroFlash = 0;
+      braking = false; brakeElapsed = 0;
+      ball.x = W / 2; ball.y = H / 2; ball.vx = 0; ball.vy = 0; ball.moving = false;
+      ball.impact = 0; ball.jump = 0; ball.scale = 1; ball.rotation = 0; ball.laughing = false;
+      targetBalls.forEach((target, index) => {
+        target.x = targetSpawns[index].x; target.y = targetSpawns[index].y;
+        target.vx = 0; target.vy = 0;
+        target.impact = 0; target.jump = 0; target.scale = 1; target.rotation = 0; target.laughing = false;
+      });
+      obstacles.forEach(obstacle => {
+        obstacle.x = obstacle.baseX; obstacle.y = obstacle.baseY; obstacle.rotation = 0;
+        obstacle.mainSoundAt = -Infinity;
+        obstacle.targetSoundAt.fill(-Infinity);
+      });
+      status.textContent = '等待发射';
+    });
+
+    // 对外保留的停止接口：后续其他逻辑可以直接调用 stopAllBalls()。
+    function stopAllBalls() {
+      ball.vx = 0;
+      ball.vy = 0;
+      ball.moving = false;
+      ball.laughing = false;
+      beginBallBrake();
+    }
+
+    document.getElementById('stopAll').addEventListener('click', stopAllBalls);
+
+    function drawBackground() {
+      const pulse = beatPulse * 0.12 + barPulse * 0.08;
+      ctx.fillStyle = `rgb(${242 + pulse * 40}, ${201 + pulse * 24}, ${120 + pulse * 30})`; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#e9b961';
+      for (let x = 0; x < W; x += 40) for (let y = 0; y < H; y += 40) {
+        if ((x / 40 + y / 40) % 2 === 0) ctx.fillRect(x, y, 20, 20);
+      }
+      ctx.strokeStyle = '#a86d4e'; ctx.lineWidth = 5;
+      ctx.strokeRect(3, 3, W - 6, H - 6);
+
+      // 节奏背景：圆环、方块、线条分别响应拍点和小节。
+      ctx.save();
+      ctx.translate(W / 2 + backgroundOffsetX, H / 2 + backgroundOffsetY);
+      ctx.globalCompositeOperation = 'screen';
+
+      // 中央全息图：先裁剪到圆形，再叠加蓝色透明层和扫描线。
+      if (hologramImage.complete && hologramImage.naturalWidth > 0) {
+        const hologramRadius = 145 + beatPulse * 28;
+        ctx.save();
+        ctx.beginPath(); ctx.arc(0, 0, hologramRadius, 0, Math.PI * 2); ctx.clip();
+        const pivotY = hologramRadius * 0.8;
+        const beatProgress = (beatElapsed % BEAT_INTERVAL) / BEAT_INTERVAL;
+        const beatDirection = beatIndex % 2 === 0 ? -1 : 1;
+        const previousDirection = -beatDirection;
+        const beatBlend = beatProgress * beatProgress * (3 - 2 * beatProgress);
+        const swayAngle = (previousDirection + (beatDirection - previousDirection) * beatBlend) * 0.12;
+        const shakeX = Math.sin(backgroundTime * 27) * 2.4 + Math.sin(backgroundTime * 43) * 1.1;
+        const shakeY = Math.cos(backgroundTime * 31) * 1.8;
+        ctx.translate(shakeX, shakeY);
+        ctx.translate(0, pivotY);
+        ctx.rotate(swayAngle + Math.sin(backgroundTime * 39) * 0.008);
+        ctx.translate(0, -pivotY);
+        ctx.globalAlpha = 0.75;
+        const imageRadius = hologramRadius * 1.25;
+        ctx.drawImage(hologramImage, -imageRadius, -imageRadius, imageRadius * 2, imageRadius * 2);
+        ctx.globalAlpha = 0.08 + beatPulse * 0.06;
+        ctx.fillStyle = '#79e7ff';
+        ctx.fillRect(-hologramRadius, -hologramRadius, hologramRadius * 2, hologramRadius * 2);
+        ctx.globalAlpha = 0.1;
+        ctx.strokeStyle = '#d5fbff'; ctx.lineWidth = 2;
+        const scanOffset = (backgroundTime * 70) % 18;
+        for (let y = -hologramRadius - 18 + scanOffset; y < hologramRadius; y += 18) {
+          ctx.beginPath(); ctx.moveTo(-hologramRadius, y); ctx.lineTo(hologramRadius, y); ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      ctx.globalAlpha = 0.18 + beatPulse * 0.25;
+      ctx.strokeStyle = '#fff2a6'; ctx.lineWidth = 3 + beatPulse * 4;
+      ctx.beginPath(); ctx.arc(0, 0, 150 + beatPulse * 35, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(W / 2, H / 2);
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.12 + barPulse * 0.22;
+      ctx.strokeStyle = '#ff8f65'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, 225 + barPulse * 25, 0, Math.PI * 2); ctx.stroke();
+      ctx.rotate(beatElapsed * 0.45);
+      for (let i = 0; i < 8; i++) {
+        const angle = i * Math.PI / 4;
+        const distance = 220 + beatPulse * 22;
+        const size = 10 + barPulse * 10;
+        ctx.save(); ctx.rotate(angle); ctx.translate(distance, 0);
+        ctx.fillStyle = i % 2 ? '#b9e7ff' : '#fff2a6';
+        ctx.fillRect(-size / 2, -size / 2, size, size); ctx.restore();
+      }
+      ctx.globalAlpha = 0.16 + beatPulse * 0.16;
+      ctx.strokeStyle = '#b9e7ff'; ctx.lineWidth = 2;
+      for (let i = 0; i < 12; i++) {
+        const angle = i * Math.PI / 6;
+        const length = 80 + beatPulse * 45;
+        ctx.beginPath(); ctx.moveTo(Math.cos(angle) * 250, Math.sin(angle) * 250);
+        ctx.lineTo(Math.cos(angle) * (250 + length), Math.sin(angle) * (250 + length)); ctx.stroke();
+      }
+      ctx.restore();
+      if (outroFlash > 0) {
+        ctx.fillStyle = `rgba(255, 248, 205, ${outroFlash * 0.32})`;
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+
+    function drawObstacles() {
+      obstacles.forEach(obstacle => {
+        const renderSize = obstacle.size * obstacle.scale;
+        ctx.save();
+        ctx.translate(obstacle.x, obstacle.y);
+        ctx.rotate(obstacle.rotation);
+        ctx.globalAlpha = 0.86;
+        ctx.fillStyle = obstacle.color;
+        ctx.strokeStyle = '#fff0ba';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let i = 0; i < obstacle.sides; i++) {
+          const angle = -Math.PI / 2 + i * Math.PI * 2 / obstacle.sides;
+          const radius = renderSize * (i % 2 ? 0.92 : 1.08);
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = '#fff8db';
+        ctx.beginPath(); ctx.arc(-renderSize * 0.25, -renderSize * 0.25, renderSize * 0.22, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    function drawWallRipples() {
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.lineWidth = 3;
+      wallRipples.forEach(ripple => {
+        ctx.globalAlpha = ripple.alpha;
+        ctx.strokeStyle = '#fffdf0';
+        ctx.beginPath(); ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2); ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    function resolveObstacleCollision(entity, entityRadius, obstacle) {
+      const dx = entity.x - obstacle.x;
+      const dy = entity.y - obstacle.y;
+      const distance = Math.hypot(dx, dy);
+      const minDistance = entityRadius + obstacle.size * obstacle.scale * 0.92;
+      if (distance >= minDistance) return 0;
+      const nx = distance === 0 ? 1 : dx / distance;
+      const ny = distance === 0 ? 0 : dy / distance;
+      const overlap = minDistance - (distance || minDistance);
+      entity.x += nx * overlap;
+      entity.y += ny * overlap;
+      const normalSpeed = entity.vx * nx + entity.vy * ny;
+      if (normalSpeed < 0) {
+        entity.vx -= normalSpeed * 1.75 * nx;
+        entity.vy -= normalSpeed * 1.75 * ny;
+      }
+      return Math.abs(normalSpeed);
+    }
+
+    function drawTargetBalls() {
+      targetBalls.forEach(target => {
+        const drawScale = target.scale;
+        const drawY = target.y;
+        ctx.save();
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = '#684238';
+        ctx.beginPath(); ctx.ellipse(target.x + 3, target.y + 6, (TARGET_RADIUS + 2) * drawScale, (TARGET_RADIUS - 2) * drawScale, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        ctx.save();
+        ctx.translate(target.x, drawY);
+        ctx.rotate(target.rotation);
+        const laughReady = smallLaughImage.complete && smallLaughImage.naturalWidth > 0;
+        const holdLaughReady = smallHoldLaughImage.complete && smallHoldLaughImage.naturalWidth > 0;
+        const normalReady = smallBallImage.complete && smallBallImage.naturalWidth > 0;
+        const image = braking && holdLaughReady ? smallHoldLaughImage : target.laughing && laughReady ? smallLaughImage : normalReady ? smallBallImage : ballImage;
+        if (image.complete && image.naturalWidth > 0) {
+          ctx.drawImage(image, -TARGET_RADIUS * drawScale, -TARGET_RADIUS * drawScale, TARGET_RADIUS * 2 * drawScale, TARGET_RADIUS * 2 * drawScale);
+        }
+        ctx.restore();
+      });
+    }
+
+    function drawAim() {
+      if (!aiming) return;
+      const targetX = ball.x * 2 - aimX;
+      const targetY = ball.y * 2 - aimY;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#4b3031'; ctx.lineWidth = 12; ctx.setLineDash([22, 10]);
+      ctx.lineDashOffset = -beatElapsed * 35;
+      ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(targetX, targetY); ctx.stroke();
+      ctx.strokeStyle = '#ffd45a'; ctx.lineWidth = 8; ctx.setLineDash([22, 10]);
+      ctx.lineDashOffset = -beatElapsed * 35;
+      ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(targetX, targetY); ctx.stroke();
+      ctx.strokeStyle = '#fff4a8'; ctx.lineWidth = 3; ctx.setLineDash([10, 22]);
+      ctx.lineDashOffset = -beatElapsed * 35;
+      ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(targetX, targetY); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#fff4a8'; ctx.strokeStyle = '#4b3031'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(targetX, targetY, 10 + beatPulse * 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ffcf52';
+      ctx.beginPath(); ctx.arc(ball.x, ball.y, 7 + beatPulse * 3, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
+    function drawBall() {
+      const drawScale = ball.scale;
+      const drawY = ball.y;
+      ctx.save();
+      ctx.strokeStyle = '#fff4a8'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(ball.x, drawY, (ball.r + 9) * drawScale, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#ffce52'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(ball.x, drawY, (ball.r + 14) * drawScale, 0, Math.PI * 2); ctx.stroke();
+      ctx.translate(ball.x, drawY);
+      ctx.rotate(ball.rotation);
+      const laughReady = laughImage.complete && laughImage.naturalWidth > 0;
+      const holdLaughReady = holdLaughImage.complete && holdLaughImage.naturalWidth > 0;
+      const image = braking && holdLaughReady ? holdLaughImage : ball.laughing > 0 && laughReady ? laughImage : ballImage;
+      if (image.complete && image.naturalWidth > 0) {
+        ctx.drawImage(image, -ball.r * drawScale, -ball.r * drawScale, ball.r * 2 * drawScale, ball.r * 2 * drawScale);
+      } else {
+        ctx.fillStyle = '#fffdf4'; ctx.beginPath(); ctx.arc(0, 0, ball.r * drawScale, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function update(dt) {
+      updateWallRipples(dt);
+      beatElapsed += dt;
+      const nextBeatIndex = Math.floor(beatElapsed / BEAT_INTERVAL);
+      if (nextBeatIndex !== beatIndex) {
+        beatIndex = nextBeatIndex;
+        beatPulse = 1;
+        if (beatIndex % 4 === 0) barPulse = 1;
+      }
+      beatPulse = Math.max(0, beatPulse - dt * 5.5);
+      barPulse = Math.max(0, barPulse - dt * 2.2);
+
+      backgroundTime += dt;
+      backgroundNextShift -= dt;
+      if (backgroundNextShift <= 0) {
+        backgroundTargetX = (Math.random() * 2 - 1) * BACKGROUND_DRIFT_RANGE;
+        backgroundTargetY = (Math.random() * 2 - 1) * BACKGROUND_DRIFT_RANGE;
+        backgroundNextShift = 0.2 + Math.random() * 0.36;
+      }
+      backgroundOffsetX += (backgroundTargetX - backgroundOffsetX) * Math.min(1, dt * 4.2);
+      backgroundOffsetY += (backgroundTargetY - backgroundOffsetY) * Math.min(1, dt * 4.2);
+
+      obstacles.forEach(obstacle => {
+        obstacle.x += obstacle.velocityX * dt;
+        obstacle.y += obstacle.velocityY * dt;
+        const wrapMargin = OBSTACLE_WRAP_MARGIN + obstacle.size * obstacle.scale;
+        if (obstacle.x < -wrapMargin) obstacle.x = W + wrapMargin;
+        if (obstacle.x > W + wrapMargin) obstacle.x = -wrapMargin;
+        if (obstacle.y < -wrapMargin) obstacle.y = H + wrapMargin;
+        if (obstacle.y > H + wrapMargin) obstacle.y = -wrapMargin;
+        obstacle.rotation += dt * (0.35 + obstacle.sides * 0.08);
+      });
+
+      if (outroState === 'laughing') {
+        outroElapsed += dt * 1000;
+        if (outroElapsed >= OUTRO_DURATION * 0.55) {
+          outroState = 'fade';
+          fadeOutAllLaughs();
+        }
+      } else if (outroState === 'fade') {
+        outroElapsed += dt * 1000;
+        if (outroElapsed >= OUTRO_DURATION) {
+          outroState = 'idle';
+          targetBalls.forEach(target => target.laughing = false);
+          ball.laughing = false;
+          status.textContent = '收尾完成，等待下一次发射';
+        }
+      }
+      outroFlash = Math.max(0, outroFlash - dt * 1.8);
+
+      const updateImpact = entity => {
+        entity.impact = Math.max(0, entity.impact - dt * 3.5);
+        entity.jump = 0;
+        const idleBeatScale = entity === ball || Math.hypot(entity.vx, entity.vy) < STOP_SPEED ? beatPulse * 0.045 : 0;
+        entity.scale += (1 + idleBeatScale - entity.scale) * Math.min(1, dt * 24);
+        entity.rotation += (IDLE_ROTATION_SPEED + Math.hypot(entity.vx, entity.vy) * 0.002 + entity.impact * 0.08) * dt * 60 * 0.5;
+      };
+      targetBalls.forEach(updateImpact);
+      updateImpact(ball);
+      targetBalls.forEach(target => {
+        target.x += target.vx * dt; target.y += target.vy * dt;
+        if (target.x - TARGET_RADIUS <= 0) { target.x = TARGET_RADIUS; target.vx = Math.abs(target.vx); spawnWallRipple(0, target.y); }
+        if (target.x + TARGET_RADIUS >= W) { target.x = W - TARGET_RADIUS; target.vx = -Math.abs(target.vx); spawnWallRipple(W, target.y); }
+        if (target.y - TARGET_RADIUS <= 0) { target.y = TARGET_RADIUS; target.vy = Math.abs(target.vy); spawnWallRipple(target.x, 0); }
+        if (target.y + TARGET_RADIUS >= H) { target.y = H - TARGET_RADIUS; target.vy = -Math.abs(target.vy); spawnWallRipple(target.x, H); }
+        const damping = getDampingCoefficient();
+        target.vx *= damping; target.vy *= damping;
+        if (!hellMode.checked && Math.hypot(target.vx, target.vy) < STOP_SPEED) {
+          target.vx = 0; target.vy = 0;
+          if (outroState === 'idle' && !braking) target.laughing = false;
+        }
+      });
+
+      for (let i = 0; i < targetBalls.length; i++) {
+        for (let j = i + 1; j < targetBalls.length; j++) {
+          const impact = resolveBallCollision(targetBalls[i], targetBalls[j], TARGET_RADIUS, TARGET_RADIUS, TARGET_MASS, TARGET_MASS);
+          if (impact > 0) {
+            const strength = Math.max(MIN_BALL_IMPACT_STRENGTH, Math.min(1, impact / 900));
+            triggerImpact(targetBalls[i], strength);
+            triggerImpact(targetBalls[j], strength);
+            playCollisionSound(SMALL_BALL_PLAYBACK_RATE);
+          }
+        }
+      }
+      targetBalls.forEach(target => limitSpeed(target, TARGET_MAX_SPEED));
+
+      if (ball.moving) {
+        targetBalls.forEach((target, targetIndex) => obstacles.forEach(obstacle => {
+          const impact = resolveObstacleCollision(target, TARGET_RADIUS, obstacle);
+          if (impact > 0) {
+            const now = performance.now();
+            if (now - obstacle.targetSoundAt[targetIndex] >= OBSTACLE_SOUND_COOLDOWN) {
+              if (playCollisionSound(SMALL_BALL_PLAYBACK_RATE)) {
+                obstacle.targetSoundAt[targetIndex] = now;
+                triggerImpact(target, Math.min(1, Math.max(MIN_BALL_IMPACT_STRENGTH, impact / 500)));
+                spawnWallRipple(obstacle.x, obstacle.y);
+              }
+            }
+          }
+        }));
+      }
+
+      if (braking) {
+        brakeElapsed += dt;
+        const remaining = Math.max(0.001, BRAKE_DURATION - brakeElapsed);
+        const brakeFactor = brakeElapsed >= BRAKE_DURATION ? 0 : Math.max(0, 1 - dt / remaining);
+        targetBalls.forEach(target => { target.vx *= brakeFactor; target.vy *= brakeFactor; });
+        if (brakeElapsed >= BRAKE_DURATION) {
+          targetBalls.forEach(target => { target.vx = 0; target.vy = 0; });
+          braking = false;
+          beginLaughOutro();
+        }
+      }
+
+      if (!ball.moving) return;
+      ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+      let bounced = false;
+      let wallImpact = 0;
+      if (ball.x - ball.r <= 0) { wallImpact = Math.max(wallImpact, Math.abs(ball.vx)); ball.x = ball.r; ball.vx = Math.abs(ball.vx); bounced = true; spawnWallRipple(0, ball.y); }
+      if (ball.x + ball.r >= W) { wallImpact = Math.max(wallImpact, Math.abs(ball.vx)); ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); bounced = true; spawnWallRipple(W, ball.y); }
+      if (ball.y - ball.r <= 0) { wallImpact = Math.max(wallImpact, Math.abs(ball.vy)); ball.y = ball.r; ball.vy = Math.abs(ball.vy); bounced = true; spawnWallRipple(ball.x, 0); }
+      if (ball.y + ball.r >= H) { wallImpact = Math.max(wallImpact, Math.abs(ball.vy)); ball.y = H - ball.r; ball.vy = -Math.abs(ball.vy); bounced = true; spawnWallRipple(ball.x, H); }
+      if (wallImpact > 0) {
+        const originalWallStrength = Math.max(BASE_MIN_WALL_IMPACT_STRENGTH, Math.min(1, wallImpact / 1500));
+        const wallStrength = originalWallStrength * WALL_SCALE_MULTIPLIER;
+        triggerImpact(ball, wallStrength);
+        playCollisionSound(1.0);
+      }
+      targetBalls.forEach(target => {
+        const impact = resolveBallCollision(ball, target, BALL_RADIUS, TARGET_RADIUS, PLAYER_MASS, TARGET_MASS);
+        if (impact > 0) {
+          bounced = true;
+          const strength = Math.max(MIN_BALL_IMPACT_STRENGTH, Math.min(1, impact / 3000));
+          triggerImpact(ball, strength);
+          triggerImpact(target, strength);
+          // 主奶球撞小奶球：使用主奶球的正常音调。
+          playCollisionSound(1.0);
+        }
+      });
+      obstacles.forEach(obstacle => {
+        const impact = resolveObstacleCollision(ball, BALL_RADIUS, obstacle);
+        if (impact > 0) {
+          const now = performance.now();
+          if (now - obstacle.mainSoundAt >= OBSTACLE_SOUND_COOLDOWN) {
+            if (playCollisionSound(1.0)) {
+              obstacle.mainSoundAt = now;
+              triggerImpact(ball, Math.min(1, Math.max(MIN_WALL_IMPACT_STRENGTH, impact / 700)));
+              spawnWallRipple(obstacle.x, obstacle.y);
+            }
+          }
+        }
+      });
+      targetBalls.forEach(target => limitSpeed(target, TARGET_MAX_SPEED));
+      const damping = getDampingCoefficient();
+      ball.vx *= damping; ball.vy *= damping;
+      if (!hellMode.checked && Math.hypot(ball.vx, ball.vy) < STOP_SPEED) {
+        ball.vx = 0; ball.vy = 0; ball.moving = false; ball.laughing = false;
+        beginBallBrake();
+      }
+    }
+
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.033); lastTime = now;
+      update(dt);
+      const shaking = outroState === 'laughing' || outroState === 'fade';
+      if (shaking) {
+        const fade = Math.min(1, outroElapsed / 1200);
+        const openingBurst = 1 - Math.min(1, outroElapsed / 1000);
+        const shakeStrength = 6 - fade * 2 + openingBurst * 24;
+        const shakeX = (Math.random() * 2 - 1) * shakeStrength;
+        const shakeY = (Math.random() * 2 - 1) * shakeStrength * 0.75;
+        gameWrap.style.transform = `translate3d(${shakeX.toFixed(2)}px, ${shakeY.toFixed(2)}px, 0)`;
+      } else {
+        gameWrap.style.transform = '';
+      }
+      drawBackground(); drawWallRipples(); drawObstacles(); drawTargetBalls(); drawAim(); drawBall(); requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
