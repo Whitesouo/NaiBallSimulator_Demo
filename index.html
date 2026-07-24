@@ -11,7 +11,7 @@
       margin: 0; min-height: 100vh; display: grid; place-items: center;
       background: #17131b; color: #fff4df;
     }
-    .wrap { width: min(92vw, 680px); text-align: center; }
+    .wrap { width: min(96vw, 900px); text-align: center; }
     h1 { margin: 0 0 10px; letter-spacing: 2px; font-size: 24px; }
     .hint { margin: 0 0 14px; color: #fff0c2; font-size: 26px; font-weight: 700; letter-spacing: 1px; text-shadow: 2px 2px 0 #4b3031; }
     canvas {
@@ -24,11 +24,21 @@
     .status { margin-top: 14px; color: #fff0c2; font-size: 26px; font-weight: 700; letter-spacing: 1px; text-shadow: 2px 2px 0 #4b3031; min-height: 34px; }
     .audio-control { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; color: #ffe1a4; font-size: 13px; }
     .audio-control input { width: 180px; accent-color: #ff8f65; }
+    .toggle-control { width: 230px; justify-content: flex-start; gap: 5px; margin-left: auto; margin-right: auto; }
+    .toggle-control input { width: auto; margin: 0; }
+    .danger-toggle { color: #ff5d5d; font-size: 16px; font-weight: 700; text-shadow: 1px 1px 0 #3b1118; }
+    .danger-toggle input { accent-color: #ff3f4f; }
     button { margin-top: 8px; padding: 8px 16px; border: 0; background: #ff8f65; color: #27151a; font-weight: 700; cursor: pointer; }
     button:hover { background: #ffb178; }
+    #zoomButton { position: fixed; top: 12px; right: 12px; z-index: 100; margin: 0; border: 3px solid #4b3031; box-shadow: 3px 3px 0 #27151a; }
+    #flashOverlay { position: fixed; inset: 0; z-index: 200; pointer-events: none; background: #fff8cd; opacity: 0; }
+    body.zoomed { overflow: hidden; }
+    #game.map-zoomed { position: fixed; left: 50%; top: 50%; z-index: 80; width: min(900px, calc(100vw - 32px)); max-width: none; margin: 0; transform: translate(-50%, -50%); }
   </style>
 </head>
 <body>
+  <button id="zoomButton" type="button">放大 1.5倍</button>
+  <div id="flashOverlay" aria-hidden="true"></div>
   <main class="wrap">
     <h1>奶球模拟器 Demo</h1>
     <p class="hint">拖动奶球以发射奶球</p>
@@ -41,15 +51,19 @@
     </label>
     <label class="audio-control">
       BGM 音量
-      <input id="bgmVolume" type="range" min="0" max="1" step="0.01" value="0.35" />
-      <span id="bgmVolumeText">35%</span>
+      <input id="bgmVolume" type="range" min="0" max="1" step="0.01" value="0.50" />
+      <span id="bgmVolumeText">50%</span>
     </label>
     <label class="audio-control">
       阻尼强度
       <input id="damping" type="range" min="25" max="250" step="1" value="100" />
       <span id="dampingText">100%</span>
     </label>
-    <label class="audio-control">
+    <label class="audio-control toggle-control">
+      <input id="flashToggle" type="checkbox" checked />
+      齐笑闪光
+    </label>
+    <label class="audio-control toggle-control danger-toggle">
       <input id="hellMode" type="checkbox" />
       地狱模式（阻尼为 0）
     </label>
@@ -62,13 +76,25 @@
     const ctx = canvas.getContext('2d');
     const status = document.getElementById('status');
     const gameWrap = document.querySelector('.wrap');
+    const zoomButton = document.getElementById('zoomButton');
+    const flashOverlay = document.getElementById('flashOverlay');
     const volumeSlider = document.getElementById('volume');
     const volumeText = document.getElementById('volumeText');
     const bgmVolumeSlider = document.getElementById('bgmVolume');
     const bgmVolumeText = document.getElementById('bgmVolumeText');
     const dampingSlider = document.getElementById('damping');
     const dampingText = document.getElementById('dampingText');
+    const flashToggle = document.getElementById('flashToggle');
     const hellMode = document.getElementById('hellMode');
+    let zoomed = false;
+
+    zoomButton.addEventListener('click', () => {
+      zoomed = !zoomed;
+      document.body.classList.toggle('zoomed', zoomed);
+      canvas.classList.toggle('map-zoomed', zoomed);
+      updateCanvasResolution();
+      zoomButton.textContent = zoomed ? '退出放大' : '放大 1.5倍';
+    });
     const ballImage = new Image();
     ballImage.src = 'Nai.png';
     const smallBallImage = new Image();
@@ -166,7 +192,6 @@
     let barPulse = 0;
     let outroState = 'idle';
     let outroElapsed = 0;
-    let outroFlash = 0;
     let braking = false;
     let brakeElapsed = 0;
     let backgroundTime = 0;
@@ -175,7 +200,15 @@
     let backgroundTargetX = 0;
     let backgroundTargetY = 0;
     let backgroundNextShift = 1.5;
-    const W = canvas.width, H = canvas.height;
+    const W = 600, H = 600;
+    let renderScale = 1;
+
+    function updateCanvasResolution() {
+      renderScale = zoomed ? 1.5 : 1;
+      canvas.width = W * renderScale;
+      canvas.height = H * renderScale;
+    }
+
     const ball = { x: W / 2, y: H / 2, r: BALL_RADIUS, vx: 0, vy: 0, moving: false, impact: 0, jump: 0, scale: 1, rotation: 0, laughing: false };
     let aiming = false;
     let aimX = ball.x, aimY = ball.y;
@@ -270,7 +303,6 @@
       if (outroState === 'laughing' || outroState === 'fade') return;
       outroState = 'laughing';
       outroElapsed = 0;
-      outroFlash = 1;
       targetBalls.forEach(target => triggerImpact(target, 0.9));
       triggerImpact(ball, 1);
       playCollectiveLaugh();
@@ -417,7 +449,7 @@
     document.getElementById('reset').addEventListener('click', () => {
       stopAllLaughs();
       wallRipples.length = 0;
-      outroState = 'idle'; outroElapsed = 0; outroFlash = 0;
+      outroState = 'idle'; outroElapsed = 0;
       braking = false; brakeElapsed = 0;
       ball.x = W / 2; ball.y = H / 2; ball.vx = 0; ball.vy = 0; ball.moving = false;
       ball.impact = 0; ball.jump = 0; ball.scale = 1; ball.rotation = 0; ball.laughing = false;
@@ -470,19 +502,29 @@
         const beatDirection = beatIndex % 2 === 0 ? -1 : 1;
         const previousDirection = -beatDirection;
         const beatBlend = beatProgress * beatProgress * (3 - 2 * beatProgress);
-        const swayAngle = (previousDirection + (beatDirection - previousDirection) * beatBlend) * 0.12;
+        const swayAngle = (previousDirection + (beatDirection - previousDirection) * beatBlend) * (12 * Math.PI / 180);
         const shakeX = Math.sin(backgroundTime * 27) * 2.4 + Math.sin(backgroundTime * 43) * 1.1;
         const shakeY = Math.cos(backgroundTime * 31) * 1.8;
+        // 图片单独抖动；恢复变换后再绘制全息层，避免全息圆边被裁开。
+        ctx.save();
         ctx.translate(shakeX, shakeY);
         ctx.translate(0, pivotY);
         ctx.rotate(swayAngle + Math.sin(backgroundTime * 39) * 0.008);
         ctx.translate(0, -pivotY);
         ctx.globalAlpha = 0.75;
-        const imageRadius = hologramRadius * 1.25;
-        ctx.drawImage(hologramImage, -imageRadius, -imageRadius, imageRadius * 2, imageRadius * 2);
+        const imageScale = Math.max(
+          hologramRadius * 2 / hologramImage.naturalWidth,
+          hologramRadius * 2 / hologramImage.naturalHeight
+        ) * 1.25;
+        const imageWidth = hologramImage.naturalWidth * imageScale;
+        const imageHeight = hologramImage.naturalHeight * imageScale;
+        ctx.drawImage(hologramImage, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
+        ctx.restore();
+        // 全息叠层：用完整圆形覆盖投影区域，避免矩形叠层在边缘出现缺口。
+        ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 0.08 + beatPulse * 0.06;
         ctx.fillStyle = '#79e7ff';
-        ctx.fillRect(-hologramRadius, -hologramRadius, hologramRadius * 2, hologramRadius * 2);
+        ctx.beginPath(); ctx.arc(0, 0, hologramRadius, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 0.1;
         ctx.strokeStyle = '#d5fbff'; ctx.lineWidth = 2;
         const scanOffset = (backgroundTime * 70) % 18;
@@ -521,10 +563,6 @@
         ctx.lineTo(Math.cos(angle) * (250 + length), Math.sin(angle) * (250 + length)); ctx.stroke();
       }
       ctx.restore();
-      if (outroFlash > 0) {
-        ctx.fillStyle = `rgba(255, 248, 205, ${outroFlash * 0.32})`;
-        ctx.fillRect(0, 0, W, H);
-      }
     }
 
     function drawObstacles() {
@@ -634,6 +672,11 @@
       const drawScale = ball.scale;
       const drawY = ball.y;
       ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = '#684238';
+      ctx.beginPath(); ctx.ellipse(ball.x + 3, drawY + 6, (ball.r + 2) * drawScale, (ball.r - 2) * drawScale, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      ctx.save();
       ctx.strokeStyle = '#fff4a8'; ctx.lineWidth = 5;
       ctx.beginPath(); ctx.arc(ball.x, drawY, (ball.r + 9) * drawScale, 0, Math.PI * 2); ctx.stroke();
       ctx.strokeStyle = '#ffce52'; ctx.lineWidth = 2;
@@ -699,12 +742,10 @@
           status.textContent = '收尾完成，等待下一次发射';
         }
       }
-      outroFlash = Math.max(0, outroFlash - dt * 1.8);
-
       const updateImpact = entity => {
         entity.impact = Math.max(0, entity.impact - dt * 3.5);
         entity.jump = 0;
-        const idleBeatScale = entity === ball || Math.hypot(entity.vx, entity.vy) < STOP_SPEED ? beatPulse * 0.045 : 0;
+        const idleBeatScale = entity === ball || Math.hypot(entity.vx, entity.vy) < STOP_SPEED ? beatPulse * 0.084375 : 0;
         entity.scale += (1 + idleBeatScale - entity.scale) * Math.min(1, dt * 24);
         entity.rotation += (IDLE_ROTATION_SPEED + Math.hypot(entity.vx, entity.vy) * 0.002 + entity.impact * 0.08) * dt * 60 * 0.5;
       };
@@ -826,6 +867,15 @@
       } else {
         gameWrap.style.transform = '';
       }
+      // 齐笑开始时：闪一下，停顿，再快速闪两下。
+      const flash = flashToggle.checked && outroState === 'laughing' ? Math.max(
+        Math.max(0, 1 - Math.abs(outroElapsed - 100) / 70),
+        Math.max(0, 1 - Math.abs(outroElapsed - 520) / 55),
+        Math.max(0, 1 - Math.abs(outroElapsed - 650) / 55),
+        Math.max(0, (1 - Math.abs(outroElapsed - 1000) / 220))
+      ) : 0;
+      flashOverlay.style.opacity = (flash * 0.315).toFixed(3);
+      ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
       drawBackground(); drawWallRipples(); drawObstacles(); drawTargetBalls(); drawAim(); drawBall(); requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
