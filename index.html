@@ -31,6 +31,9 @@
     button { margin-top: 8px; padding: 8px 16px; border: 0; background: #ff8f65; color: #27151a; font-weight: 700; cursor: pointer; }
     button:hover { background: #ffb178; }
     #zoomButton { position: fixed; top: 12px; right: 12px; z-index: 100; margin: 0; border: 3px solid #4b3031; box-shadow: 3px 3px 0 #27151a; }
+    #laughCounter { position: fixed; top: 10px; left: 50%; z-index: 90; transform: translateX(-50%); display: inline-flex; align-items: baseline; justify-content: center; color: #ffd45a; font-size: 32px; font-weight: 800; letter-spacing: 1px; filter: drop-shadow(2px 2px 0 #315c35); white-space: nowrap; pointer-events: none; }
+    #laughCounter > span { background: linear-gradient(to bottom left, #ffd45a 0%, #ffd45a 45%, #8fe388 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
+    #laughCounter .counter-number { display: inline-block; flex: 0 0 auto; text-align: center; font-variant-numeric: tabular-nums; transform-origin: 50% 80%; will-change: transform; }
     #flashOverlay { position: fixed; inset: 0; z-index: 200; pointer-events: none; background: #fff8cd; opacity: 0; }
     body.zoomed { overflow: hidden; }
     #game.map-zoomed { position: fixed; left: 50%; top: 50%; z-index: 80; width: min(900px, calc(100vw - 32px)); max-width: none; margin: 0; transform: translate(-50%, -50%); }
@@ -39,6 +42,7 @@
 <body>
   <button id="zoomButton" type="button">放大 1.5倍</button>
   <div id="flashOverlay" aria-hidden="true"></div>
+  <div id="laughCounter"><span>唐笑计数:&nbsp;</span><span class="counter-number">0</span><span>&nbsp;次</span></div>
   <main class="wrap">
     <h1>奶球模拟器 Demo</h1>
     <p class="hint">拖动奶球以发射奶球</p>
@@ -78,6 +82,8 @@
     const gameWrap = document.querySelector('.wrap');
     const zoomButton = document.getElementById('zoomButton');
     const flashOverlay = document.getElementById('flashOverlay');
+    const laughCounter = document.getElementById('laughCounter');
+    const laughCountValue = laughCounter.querySelector('.counter-number');
     const volumeSlider = document.getElementById('volume');
     const volumeText = document.getElementById('volumeText');
     const bgmVolumeSlider = document.getElementById('bgmVolume');
@@ -214,6 +220,31 @@
     let aimX = ball.x, aimY = ball.y;
     let lastTime = performance.now();
     let lastCollisionSoundAt = -Infinity;
+    let laughCount = 0;
+    let laughCountAnimationFrame = 0;
+
+    function animateLaughCount() {
+      cancelAnimationFrame(laughCountAnimationFrame);
+      const startTime = performance.now();
+      const duration = 460;
+      const update = now => {
+        const progress = Math.min(1, (now - startTime) / duration);
+        const wave = Math.sin(progress * Math.PI);
+        laughCountValue.style.transform = `translateY(${-7 * wave}px) scale(${1 + 0.5 * wave})`;
+        if (progress < 1) {
+          laughCountAnimationFrame = requestAnimationFrame(update);
+        } else {
+          laughCountValue.style.transform = '';
+        }
+      };
+      laughCountAnimationFrame = requestAnimationFrame(update);
+    }
+
+    function updateLaughCount(value) {
+      const digits = String(value).length;
+      laughCountValue.textContent = value;
+      laughCountValue.style.width = `${Math.max(2, digits + 0.6)}ch`;
+    }
     const wallRipples = [];
 
     function spawnWallRipple(x, y) {
@@ -268,7 +299,17 @@
       if (now - lastCollisionSoundAt < 55) return false;
       lastCollisionSoundAt = now;
       playBounce(playbackRate);
+      laughCount += 1;
+      updateLaughCount(laughCount);
+      animateLaughCount();
       return true;
+    }
+
+    function resetLaughCounter() {
+      laughCount = 0;
+      updateLaughCount(0);
+      cancelAnimationFrame(laughCountAnimationFrame);
+      laughCountValue.style.transform = '';
     }
 
     function triggerImpact(entity, strength = 1) {
@@ -449,11 +490,13 @@
       ball.vx = dx / length * speed;
       ball.vy = dy / length * speed;
       ball.moving = true;
+      resetLaughCounter();
       status.textContent = '众宾欢也……';
     });
 
     document.getElementById('reset').addEventListener('click', () => {
       stopAllLaughs();
+      resetLaughCounter();
       wallRipples.length = 0;
       outroState = 'idle'; outroElapsed = 0;
       braking = false; brakeElapsed = 0;
@@ -751,6 +794,7 @@
           outroState = 'idle';
           targetBalls.forEach(target => target.laughing = false);
           ball.laughing = false;
+          resetLaughCounter();
           status.textContent = '收尾完成，等待下一次发射';
         }
       }
