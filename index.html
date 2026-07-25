@@ -464,7 +464,7 @@
       };
       // 齐笑中只播放一个大球声源，其余由小球声源承担。
       playVoice(mainLaughPool[0], 1, 1, 0, MAIN_LAUGH_SOURCE);
-      smallLaughPool.slice(0, targetBalls.length).forEach(voice => playVoice(voice, 0.75 + Math.random() * 0.5, 0.6, Math.random() * 1200, SMALL_LAUGH_SOURCE));
+      smallLaughPool.slice(0, targetBalls.length).forEach(voice => playVoice(voice, 0.75 + Math.random() * 0.5, 0.6, Math.random() * 600, SMALL_LAUGH_SOURCE));
     }
 
     function beginLaughOutro() {
