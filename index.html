@@ -490,6 +490,28 @@
       entity.vy *= ratio;
     }
 
+    function reclaimExcessKineticEnergy(cappedEntity, receiver, cappedMass, receiverMass, fallbackX, fallbackY) {
+      const speed = Math.hypot(cappedEntity.vx, cappedEntity.vy);
+      if (speed <= TARGET_MAX_SPEED || speed === 0) return;
+      const excessEnergy = 0.5 * cappedMass * (speed * speed - TARGET_MAX_SPEED * TARGET_MAX_SPEED);
+      limitSpeed(cappedEntity, TARGET_MAX_SPEED);
+
+      let directionX = receiver.vx;
+      let directionY = receiver.vy;
+      const receiverSpeed = Math.hypot(directionX, directionY);
+      if (receiverSpeed === 0) {
+        const fallbackLength = Math.hypot(fallbackX, fallbackY) || 1;
+        directionX = fallbackX / fallbackLength;
+        directionY = fallbackY / fallbackLength;
+      } else {
+        directionX /= receiverSpeed;
+        directionY /= receiverSpeed;
+      }
+      const newReceiverSpeed = Math.sqrt(receiverSpeed * receiverSpeed + 2 * excessEnergy / receiverMass);
+      receiver.vx = directionX * newReceiverSpeed;
+      receiver.vy = directionY * newReceiverSpeed;
+    }
+
     function stopAllLaughs() {
       clearInterval(laughFadeTimer);
       laughStartTimers.forEach(timer => clearTimeout(timer));
@@ -1062,6 +1084,7 @@
         const impact = resolveBallCollision(ball, target, BALL_RADIUS, TARGET_RADIUS, PLAYER_MASS, TARGET_MASS);
         if (impact > 0) {
           bounced = true;
+          reclaimExcessKineticEnergy(target, ball, TARGET_MASS, PLAYER_MASS, ball.x - target.x, ball.y - target.y);
           const strength = Math.max(MIN_BALL_IMPACT_STRENGTH, Math.min(1, impact / 3000));
           triggerImpact(ball, strength);
           triggerImpact(target, strength);
