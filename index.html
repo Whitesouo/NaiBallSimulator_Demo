@@ -25,7 +25,8 @@
     .status.collective-laugh { display: inline-block; font-weight: 800; text-shadow: none; filter: drop-shadow(2px 2px 0 #315c35); }
     .status.collective-laugh > span { background: linear-gradient(to bottom left, #ffd45a 0%, #ffd45a 45%, #8fe388 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
     .audio-control { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; color: #ffe1a4; font-size: 13px; }
-    .audio-control input { width: 180px; accent-color: #ff8f65; }
+    .audio-control input[type="range"] { width: 180px; accent-color: #ff8f65; }
+    .audio-control input[type="number"] { width: 58px; padding: 3px 5px; color: #fff4df; background: #271f2b; border: 1px solid #8a6650; text-align: right; }
     .toggle-control { width: 230px; justify-content: flex-start; gap: 5px; margin-left: auto; margin-right: auto; }
     .toggle-control input { width: auto; margin: 0; }
     .danger-toggle { color: #ff5d5d; font-size: 16px; font-weight: 700; text-shadow: 1px 1px 0 #3b1118; }
@@ -55,17 +56,17 @@
     <label class="audio-control">
       大笑音量
       <input id="volume" type="range" min="0" max="1" step="0.01" value="0.10" />
-      <span id="volumeText">10%</span>
+      <input id="volumeValue" class="value-input" type="number" min="0" max="100" step="1" value="10" aria-label="大笑音量数值" />%
     </label>
     <label class="audio-control">
       BGM 音量
       <input id="bgmVolume" type="range" min="0" max="1" step="0.01" value="0.50" />
-      <span id="bgmVolumeText">50%</span>
+      <input id="bgmVolumeValue" class="value-input" type="number" min="0" max="100" step="1" value="50" aria-label="BGM 音量数值" />%
     </label>
     <label class="audio-control">
       奶球摩擦力
       <input id="damping" type="range" min="10" max="250" step="1" value="100" />
-      <span id="dampingText">100%</span>
+      <input id="dampingValue" class="value-input" type="number" min="10" max="250" step="1" value="100" aria-label="奶球摩擦力数值" />%
     </label>
     <label class="audio-control toggle-control">
       <input id="flashToggle" type="checkbox" checked />
@@ -90,11 +91,11 @@
     const laughCounter = document.getElementById('laughCounter');
     const laughCountValue = laughCounter.querySelector('.counter-number');
     const volumeSlider = document.getElementById('volume');
-    const volumeText = document.getElementById('volumeText');
+    const volumeValue = document.getElementById('volumeValue');
     const bgmVolumeSlider = document.getElementById('bgmVolume');
-    const bgmVolumeText = document.getElementById('bgmVolumeText');
+    const bgmVolumeValue = document.getElementById('bgmVolumeValue');
     const dampingSlider = document.getElementById('damping');
-    const dampingText = document.getElementById('dampingText');
+    const dampingValue = document.getElementById('dampingValue');
     const flashToggle = document.getElementById('flashToggle');
     const hellMode = document.getElementById('hellMode');
     let zoomed = false;
@@ -621,20 +622,50 @@
       return impact;
     }
 
-    volumeSlider.addEventListener('input', () => {
-      const volume = Number(volumeSlider.value);
-      volumeText.textContent = `${Math.round(volume * 100)}%`;
-      [...smallLaughPool, ...mainLaughPool].forEach(voice => voice.audio.volume = volume * voice.volumeMultiplier);
-    });
+    function clampInputValue(input, min, max, fallback) {
+      const value = Number(input.value);
+      return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+    }
 
-    bgmVolumeSlider.addEventListener('input', () => {
+    function syncVolumeFromSlider() {
+      const volume = Number(volumeSlider.value);
+      volumeValue.value = Math.round(volume * 100);
+      [...smallLaughPool, ...mainLaughPool].forEach(voice => voice.audio.volume = volume * voice.volumeMultiplier);
+    }
+
+    function syncBgmVolumeFromSlider() {
       const volume = Number(bgmVolumeSlider.value);
       bgm.volume = volume * AUDIO_GAIN;
-      bgmVolumeText.textContent = `${Math.round(volume * 100)}%`;
+      bgmVolumeValue.value = Math.round(volume * 100);
+    }
+
+    function syncDampingFromSlider() {
+      dampingValue.value = dampingSlider.value;
+    }
+
+    volumeSlider.addEventListener('input', syncVolumeFromSlider);
+    bgmVolumeSlider.addEventListener('input', syncBgmVolumeFromSlider);
+    dampingSlider.addEventListener('input', syncDampingFromSlider);
+
+    volumeValue.addEventListener('change', () => {
+      const value = clampInputValue(volumeValue, 0, 100, 10);
+      volumeValue.value = value;
+      volumeSlider.value = value / 100;
+      syncVolumeFromSlider();
     });
 
-    dampingSlider.addEventListener('input', () => {
-      dampingText.textContent = `${dampingSlider.value}%`;
+    bgmVolumeValue.addEventListener('change', () => {
+      const value = clampInputValue(bgmVolumeValue, 0, 100, 50);
+      bgmVolumeValue.value = value;
+      bgmVolumeSlider.value = value / 100;
+      syncBgmVolumeFromSlider();
+    });
+
+    dampingValue.addEventListener('change', () => {
+      const value = clampInputValue(dampingValue, 10, 250, 100);
+      dampingValue.value = value;
+      dampingSlider.value = value;
+      syncDampingFromSlider();
     });
 
     document.addEventListener('pointerdown', startBgm, { once: true });
