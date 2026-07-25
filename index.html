@@ -33,12 +33,12 @@
     button { margin-top: 8px; padding: 8px 16px; border: 0; background: #ff8f65; color: #27151a; font-weight: 700; cursor: pointer; }
     button:hover { background: #ffb178; }
     #zoomButton { position: fixed; z-index: 100; margin: 0; border: 3px solid #4b3031; box-shadow: 3px 3px 0 #27151a; }
-    #laughCounter { display: inline-flex; align-items: baseline; justify-content: center; margin: 0 0 12px; color: #ffd45a; font-size: 32px; font-weight: 800; letter-spacing: 1px; filter: drop-shadow(2px 2px 0 #315c35); white-space: nowrap; pointer-events: none; }
+    #laughCounter { display: inline-flex; align-items: baseline; justify-content: center; margin: 0; color: #ffd45a; font-size: 32px; font-weight: 800; letter-spacing: 1px; filter: drop-shadow(2px 2px 0 #315c35); white-space: nowrap; pointer-events: none; }
     #laughCounter > span { background: linear-gradient(to bottom left, #ffd45a 0%, #ffd45a 45%, #8fe388 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
     #laughCounter .counter-number { display: inline-block; flex: 0 0 auto; text-align: center; font-variant-numeric: tabular-nums; transform-origin: 50% 80%; will-change: transform; }
     #flashOverlay { position: fixed; inset: 0; z-index: 200; pointer-events: none; background: #fff8cd; opacity: 0; }
     body.zoomed { overflow: hidden; }
-    body.zoomed #laughCounter { position: fixed; top: 10px; left: 50%; z-index: 90; transform: translateX(-50%); margin: 0; }
+    body.zoomed #laughCounter { position: fixed; z-index: 90; margin: 0; }
     #game { --shake-x: 0px; --shake-y: 0px; transform: translate3d(var(--shake-x), var(--shake-y), 0); }
     #game.map-zoomed { position: fixed; left: 50%; top: 50%; z-index: 80; width: min(900px, calc(100vw - 32px)); max-width: none; margin: 0; transform: translate(-50%, -50%) translate3d(var(--shake-x), var(--shake-y), 0); }
   </style>
@@ -105,16 +105,39 @@
       zoomButton.style.top = `${rect.bottom}px`;
     }
 
+    function updateLaughCounterPosition() {
+      if (!zoomed) {
+        laughCounter.style.left = '';
+        laughCounter.style.top = '';
+        laughCounter.style.transform = '';
+        laughCounter.style.position = '';
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      laughCounter.style.left = `${(rect.left + rect.right) / 2}px`;
+      laughCounter.style.top = `${rect.top - laughCounter.offsetHeight}px`;
+      laughCounter.style.transform = 'translateX(-50%)';
+    }
+
     zoomButton.addEventListener('click', () => {
       zoomed = !zoomed;
       document.body.classList.toggle('zoomed', zoomed);
       canvas.classList.toggle('map-zoomed', zoomed);
       updateCanvasResolution();
       zoomButton.textContent = zoomed ? '退出纯享模式' : '纯享模式';
-      requestAnimationFrame(updateZoomButtonPosition);
+      requestAnimationFrame(() => {
+        updateZoomButtonPosition();
+        updateLaughCounterPosition();
+      });
     });
-    window.addEventListener('resize', updateZoomButtonPosition);
-    requestAnimationFrame(updateZoomButtonPosition);
+    window.addEventListener('resize', () => {
+      updateZoomButtonPosition();
+      updateLaughCounterPosition();
+    });
+    requestAnimationFrame(() => {
+      updateZoomButtonPosition();
+      updateLaughCounterPosition();
+    });
     const ballImage = new Image();
     ballImage.src = 'Nai.png';
     const smallBallImage = new Image();
@@ -138,7 +161,7 @@
     const EARLY_LAUNCH_POWER_EXPONENT = 0.82;
     const LAUNCH_POWER_EXPONENT = 0.78;
     const EARLY_DRAG_RATIO = 0.2;
-    const BALL_TOUCH_RADIUS_MULTIPLIER = 3;
+    const BALL_TOUCH_RADIUS_MULTIPLIER = 5;
     const TARGET_MAX_SPEED = MAX_LAUNCH_SPEED;
     const STOP_SPEED = 10;
     const BASE_DAMPING = 0.998674;
@@ -1085,6 +1108,7 @@
         canvas.style.setProperty('--shake-y', '0px');
       }
       updateZoomButtonPosition();
+      updateLaughCounterPosition();
       // 齐笑开始时：闪一下，停顿，再快速闪两下。
       const flash = flashToggle.checked && outroState === 'laughing' ? Math.max(
         Math.max(0, 1 - Math.abs(outroElapsed - 100) / 70),
