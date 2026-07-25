@@ -37,10 +37,16 @@
     #laughCounter { display: inline-flex; align-items: baseline; justify-content: center; margin: 0; color: #ffd45a; font-size: 32px; font-weight: 800; letter-spacing: 1px; filter: drop-shadow(2px 2px 0 #315c35); white-space: nowrap; pointer-events: none; }
     #laughCounter > span { background: linear-gradient(to bottom left, #ffd45a 0%, #ffd45a 45%, #8fe388 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
     #laughCounter .counter-number { display: inline-block; flex: 0 0 auto; text-align: center; font-variant-numeric: tabular-nums; transform-origin: 50% 80%; will-change: transform; }
-    #speedDisplay { position: fixed; z-index: 70; display: flex; flex-direction: column; align-items: center; gap: 6px; color: #fff; font-size: 16px; font-weight: 800; line-height: 1; writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 2px; text-shadow: 2px 2px 0 #315c35; pointer-events: none; user-select: none; }
+    #speedDisplay { position: static; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 10px auto 4px; color: #fff; font-size: 16px; font-weight: 800; line-height: 1; letter-spacing: 1px; text-shadow: 2px 2px 0 #315c35; pointer-events: none; user-select: none; }
     #speedDisplay .speed-value { font-variant-numeric: tabular-nums; letter-spacing: 0; }
     #flashOverlay { position: fixed; inset: 0; z-index: 200; pointer-events: none; background: #fff8cd; opacity: 0; }
     body.zoomed { overflow: hidden; }
+    body.zoomed .wrap > h1,
+    body.zoomed .wrap > .hint,
+    body.zoomed .wrap > #speedDisplay,
+    body.zoomed .wrap > .status,
+    body.zoomed .wrap > .audio-control,
+    body.zoomed .wrap > button:not(#zoomButton) { display: none; }
     body.zoomed #laughCounter { position: fixed; z-index: 90; margin: 0; }
     #game { --shake-x: 0px; --shake-y: 0px; transform: translate3d(var(--shake-x), var(--shake-y), 0); }
     #game.map-zoomed { position: fixed; left: 50%; top: 50%; z-index: 80; width: min(900px, calc(100vw - 32px)); max-width: none; margin: 0; transform: translate(-50%, -50%) translate3d(var(--shake-x), var(--shake-y), 0); }
@@ -48,7 +54,6 @@
 </head>
 <body>
   <button id="zoomButton" type="button">纯享模式</button>
-  <div id="speedDisplay" aria-label="当前奶球运动速度">当前唐速<span class="speed-value">0</span></div>
   <div id="flashOverlay" aria-hidden="true"></div>
   <main class="wrap">
     <h1>奶球模拟器 Demo</h1>
@@ -56,6 +61,7 @@
     <div id="laughCounter"><span>唐笑计数:&nbsp;</span><span class="counter-number">0</span><span>&nbsp;次</span></div>
     <canvas id="game" width="600" height="600"></canvas>
     <div id="status" class="status"><span id="statusText">等待发射</span></div>
+    <div id="speedDisplay" aria-label="当前奶球运动速度">当前唐速：<span class="speed-value">0</span></div>
     <label class="audio-control">
       大笑音量
       <input id="volume" type="range" min="0" max="1" step="0.01" value="0.10" />
@@ -139,14 +145,6 @@
       speedDisplay.style.color = `rgb(${color.join(', ')})`;
     }
 
-    function updateSpeedDisplayPosition() {
-      const rect = canvas.getBoundingClientRect();
-      const left = Math.max(4, rect.left - speedDisplay.offsetWidth - 12);
-      speedDisplay.style.left = `${left}px`;
-      speedDisplay.style.top = `${(rect.top + rect.bottom) / 2}px`;
-      speedDisplay.style.transform = 'translateY(-50%)';
-    }
-
     zoomButton.addEventListener('click', () => {
       zoomed = !zoomed;
       document.body.classList.toggle('zoomed', zoomed);
@@ -161,7 +159,6 @@
     window.addEventListener('resize', () => {
       updateZoomButtonPosition();
       updateLaughCounterPosition();
-      updateSpeedDisplayPosition();
       updateSpeedDisplay();
     });
     requestAnimationFrame(() => {
@@ -1228,7 +1225,6 @@
       }
       updateZoomButtonPosition();
       updateLaughCounterPosition();
-      updateSpeedDisplayPosition();
       if (now - lastSpeedDisplayUpdate >= 50) {
         updateSpeedDisplay();
         lastSpeedDisplayUpdate = now;
