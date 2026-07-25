@@ -230,6 +230,31 @@
     }
     const smallLaughPool = createLaughPool(MAX_SMALL_LAUGH_VOICES, SMALL_LAUGH_SOURCE);
     const mainLaughPool = createLaughPool(MAX_MAIN_LAUGH_VOICES, MAIN_LAUGH_SOURCE);
+    let laughAudioWarmStarted = false;
+
+    function warmLaughAudio() {
+      if (laughAudioWarmStarted) return;
+      laughAudioWarmStarted = true;
+      [...smallLaughPool, ...mainLaughPool].forEach(voice => {
+        const audio = voice.audio;
+        audio.load();
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = true;
+        const warmup = audio.play();
+        if (warmup && typeof warmup.then === 'function') {
+          warmup.then(() => {
+            audio.pause();
+            audio.currentTime = 0;
+            audio.muted = false;
+            audio.volume = Number(volumeSlider.value) * voice.volumeMultiplier;
+          }).catch(() => {
+            audio.muted = false;
+            audio.volume = Number(volumeSlider.value) * voice.volumeMultiplier;
+          });
+        }
+      });
+    }
     let laughFadeTimer = 0;
     let laughStartTimers = [];
     const bgm = new Audio('BGM_zhiwudazhanjiangshi.mp3');
@@ -623,7 +648,7 @@
       const displayPoint = getDisplayAimPoint(p);
       aimX = displayPoint.x; aimY = displayPoint.y;
       setStatus('拖动瞄准，松开即可发射');
-      [...smallLaughPool, ...mainLaughPool].forEach(({ audio }) => audio.load()); // 解锁浏览器对本地音频的用户手势限制
+      warmLaughAudio();
     });
 
     canvas.addEventListener('pointermove', event => {
