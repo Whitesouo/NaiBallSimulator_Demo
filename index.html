@@ -22,6 +22,8 @@
       touch-action: none;
     }
     .status { margin-top: 14px; color: #fff0c2; font-size: 26px; font-weight: 700; letter-spacing: 1px; text-shadow: 2px 2px 0 #4b3031; min-height: 34px; }
+    .status.collective-laugh { display: inline-block; font-weight: 800; text-shadow: none; filter: drop-shadow(2px 2px 0 #315c35); }
+    .status.collective-laugh > span { background: linear-gradient(to bottom left, #ffd45a 0%, #ffd45a 45%, #8fe388 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
     .audio-control { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; color: #ffe1a4; font-size: 13px; }
     .audio-control input { width: 180px; accent-color: #ff8f65; }
     .toggle-control { width: 230px; justify-content: flex-start; gap: 5px; margin-left: auto; margin-right: auto; }
@@ -30,24 +32,26 @@
     .danger-toggle input { accent-color: #ff3f4f; }
     button { margin-top: 8px; padding: 8px 16px; border: 0; background: #ff8f65; color: #27151a; font-weight: 700; cursor: pointer; }
     button:hover { background: #ffb178; }
-    #zoomButton { position: fixed; top: 12px; right: 12px; z-index: 100; margin: 0; border: 3px solid #4b3031; box-shadow: 3px 3px 0 #27151a; }
-    #laughCounter { position: fixed; top: 10px; left: 50%; z-index: 90; transform: translateX(-50%); display: inline-flex; align-items: baseline; justify-content: center; color: #ffd45a; font-size: 32px; font-weight: 800; letter-spacing: 1px; filter: drop-shadow(2px 2px 0 #315c35); white-space: nowrap; pointer-events: none; }
+    #zoomButton { position: fixed; z-index: 100; margin: 0; border: 3px solid #4b3031; box-shadow: 3px 3px 0 #27151a; }
+    #laughCounter { display: inline-flex; align-items: baseline; justify-content: center; margin: 0 0 12px; color: #ffd45a; font-size: 32px; font-weight: 800; letter-spacing: 1px; filter: drop-shadow(2px 2px 0 #315c35); white-space: nowrap; pointer-events: none; }
     #laughCounter > span { background: linear-gradient(to bottom left, #ffd45a 0%, #ffd45a 45%, #8fe388 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
     #laughCounter .counter-number { display: inline-block; flex: 0 0 auto; text-align: center; font-variant-numeric: tabular-nums; transform-origin: 50% 80%; will-change: transform; }
     #flashOverlay { position: fixed; inset: 0; z-index: 200; pointer-events: none; background: #fff8cd; opacity: 0; }
     body.zoomed { overflow: hidden; }
-    #game.map-zoomed { position: fixed; left: 50%; top: 50%; z-index: 80; width: min(900px, calc(100vw - 32px)); max-width: none; margin: 0; transform: translate(-50%, -50%); }
+    body.zoomed #laughCounter { position: fixed; top: 10px; left: 50%; z-index: 90; transform: translateX(-50%); margin: 0; }
+    #game { --shake-x: 0px; --shake-y: 0px; transform: translate3d(var(--shake-x), var(--shake-y), 0); }
+    #game.map-zoomed { position: fixed; left: 50%; top: 50%; z-index: 80; width: min(900px, calc(100vw - 32px)); max-width: none; margin: 0; transform: translate(-50%, -50%) translate3d(var(--shake-x), var(--shake-y), 0); }
   </style>
 </head>
 <body>
-  <button id="zoomButton" type="button">放大 1.5倍</button>
+  <button id="zoomButton" type="button">纯享模式</button>
   <div id="flashOverlay" aria-hidden="true"></div>
-  <div id="laughCounter"><span>唐笑计数:&nbsp;</span><span class="counter-number">0</span><span>&nbsp;次</span></div>
   <main class="wrap">
     <h1>奶球模拟器 Demo</h1>
     <p class="hint">拖动奶球以发射奶球</p>
+    <div id="laughCounter"><span>唐笑计数:&nbsp;</span><span class="counter-number">0</span><span>&nbsp;次</span></div>
     <canvas id="game" width="600" height="600"></canvas>
-    <div id="status" class="status">等待发射</div>
+    <div id="status" class="status"><span id="statusText">等待发射</span></div>
     <label class="audio-control">
       大笑音量
       <input id="volume" type="range" min="0" max="1" step="0.01" value="0.10" />
@@ -59,7 +63,7 @@
       <span id="bgmVolumeText">50%</span>
     </label>
     <label class="audio-control">
-      阻尼强度
+      奶球摩擦力
       <input id="damping" type="range" min="25" max="250" step="1" value="100" />
       <span id="dampingText">100%</span>
     </label>
@@ -69,7 +73,7 @@
     </label>
     <label class="audio-control toggle-control danger-toggle">
       <input id="hellMode" type="checkbox" />
-      地狱模式（阻尼为 0）
+      地狱模式（摩擦为 0）
     </label>
     <button id="stopAll" type="button">停止所有奶球</button>
     <button id="reset" type="button">重新放置奶球</button>
@@ -79,7 +83,8 @@
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const status = document.getElementById('status');
-    const gameWrap = document.querySelector('.wrap');
+    const statusText = document.getElementById('statusText');
+    const setStatus = (text, collectiveLaugh = false) => { statusText.textContent = text; status.classList.toggle('collective-laugh', collectiveLaugh); };
     const zoomButton = document.getElementById('zoomButton');
     const flashOverlay = document.getElementById('flashOverlay');
     const laughCounter = document.getElementById('laughCounter');
@@ -94,13 +99,22 @@
     const hellMode = document.getElementById('hellMode');
     let zoomed = false;
 
+    function updateZoomButtonPosition() {
+      const rect = canvas.getBoundingClientRect();
+      zoomButton.style.left = `${rect.right - zoomButton.offsetWidth}px`;
+      zoomButton.style.top = `${rect.bottom}px`;
+    }
+
     zoomButton.addEventListener('click', () => {
       zoomed = !zoomed;
       document.body.classList.toggle('zoomed', zoomed);
       canvas.classList.toggle('map-zoomed', zoomed);
       updateCanvasResolution();
-      zoomButton.textContent = zoomed ? '退出放大' : '放大 1.5倍';
+      zoomButton.textContent = zoomed ? '退出纯享模式' : '纯享模式';
+      requestAnimationFrame(updateZoomButtonPosition);
     });
+    window.addEventListener('resize', updateZoomButtonPosition);
+    requestAnimationFrame(updateZoomButtonPosition);
     const ballImage = new Image();
     ballImage.src = 'Nai.png';
     const smallBallImage = new Image();
@@ -121,6 +135,10 @@
     const TARGET_MASS = 0.5; // 小奶球质量降低 50%
     const MAX_LAUNCH_SPEED = 620 * 5;
     const LAUNCH_DISTANCE_OFFSET = 7.5;
+    const EARLY_LAUNCH_POWER_EXPONENT = 0.82;
+    const LAUNCH_POWER_EXPONENT = 0.78;
+    const EARLY_DRAG_RATIO = 0.2;
+    const BALL_TOUCH_RADIUS_MULTIPLIER = 3;
     const TARGET_MAX_SPEED = MAX_LAUNCH_SPEED;
     const STOP_SPEED = 10;
     const BASE_DAMPING = 0.998674;
@@ -128,7 +146,7 @@
     const MAX_SCALE_PUNCH = 1.1;
     const MAIN_SCALE_MULTIPLIER = 1.25;
     const SMALL_BALL_PLAYBACK_RATE = 2.0;
-    const BPM = 120;
+    const BPM = 124;
     const BEAT_INTERVAL = 60 / BPM;
     const OUTRO_DURATION = 5800;
     const BRAKE_DURATION = 3;
@@ -148,7 +166,7 @@
       { x: 505, y: 270 }, { x: 390, y: 385 }, { x: 210, y: 330 },
       { x: 95, y: 445 }, { x: 500, y: 500 }
     ];
-    const targetBalls = targetSpawns.map(point => ({ ...point, vx: 0, vy: 0, impact: 0, jump: 0, scale: 1, rotation: 0, laughing: false }));
+    const targetBalls = targetSpawns.map(point => ({ ...point, vx: 0, vy: 0, impact: 0, jump: 0, scale: 1, rotation: 0, laughing: false, trail: [] }));
     const obstacleBlueprints = [
       { x: 170, y: 220, size: 24, sides: 3, color: '#d96f63', phase: 0.3, drift: 10 },
       { x: 345, y: 175, size: 28, sides: 4, color: '#6ea7b8', phase: 1.8, drift: 8 },
@@ -183,7 +201,7 @@
       audio.mozPreservesPitch = false;
       audio.webkitPreservesPitch = false;
       audio.volume = Number(volumeSlider.value);
-      return { audio, startedAt: 0 };
+      return { audio, startedAt: 0, volumeMultiplier: 1 };
     });
     let laughFadeTimer = 0;
     let laughStartTimers = [];
@@ -207,7 +225,18 @@
     let backgroundTargetY = 0;
     let backgroundNextShift = 1.5;
     const W = 600, H = 600;
+    const MAX_AIM_DISTANCE = W * 0.5 * 1.25;
+    const MAX_DRAG_DISTANCE = MAX_AIM_DISTANCE * 0.5;
+    const CAMERA_EDGE_RATIO = 0.2;
+    const CAMERA_MAX_OFFSET = 72;
+    const CAMERA_IMPACT_MAX_OFFSET = CAMERA_MAX_OFFSET * 0.5;
+    const INNER_VIEWPORT_INSET = 8;
     let renderScale = 1;
+    let cameraOffsetX = 0;
+    let cameraOffsetY = 0;
+    let cameraImpactX = 0;
+    let cameraImpactY = 0;
+    let wallContactActive = false;
 
     function updateCanvasResolution() {
       renderScale = zoomed ? 1.5 : 1;
@@ -215,8 +244,11 @@
       canvas.height = H * renderScale;
     }
 
-    const ball = { x: W / 2, y: H / 2, r: BALL_RADIUS, vx: 0, vy: 0, moving: false, impact: 0, jump: 0, scale: 1, rotation: 0, laughing: false };
+    const ball = { x: W / 2, y: H / 2, r: BALL_RADIUS, vx: 0, vy: 0, moving: false, impact: 0, jump: 0, scale: 1, rotation: 0, laughing: false, trail: [] };
     let aiming = false;
+    let aimAtMax = false;
+    let dragStartX = ball.x;
+    let dragStartY = ball.y;
     let aimX = ball.x, aimY = ball.y;
     let lastTime = performance.now();
     let lastCollisionSoundAt = -Infinity;
@@ -264,12 +296,72 @@
     function pointerPosition(event) {
       const rect = canvas.getBoundingClientRect();
       return {
-        x: (event.clientX - rect.left) * W / rect.width,
-        y: (event.clientY - rect.top) * H / rect.height
+        x: (event.clientX - rect.left) * W / rect.width - cameraOffsetX,
+        y: (event.clientY - rect.top) * H / rect.height - cameraOffsetY
       };
     }
 
-    function playBounce(playbackRate = 1) {
+    function getDisplayAimPoint(point) {
+      const dx = dragStartX - point.x;
+      const dy = dragStartY - point.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance === 0) return { x: ball.x, y: ball.y };
+      const displayDistance = Math.min(
+        MAX_AIM_DISTANCE,
+        distance * MAX_AIM_DISTANCE / MAX_DRAG_DISTANCE
+      );
+      const ratio = displayDistance / distance;
+      return { x: ball.x - dx * ratio, y: ball.y - dy * ratio };
+    }
+
+    function updateCamera(dt) {
+      const edgeX = W * CAMERA_EDGE_RATIO;
+      const edgeY = H * CAMERA_EDGE_RATIO;
+      let targetX = 0;
+      let targetY = 0;
+      if (aiming) {
+        if (ball.x < edgeX) targetX = Math.min(CAMERA_MAX_OFFSET, (W / 2 - ball.x) * 0.3);
+        if (ball.x > W - edgeX) targetX = Math.max(-CAMERA_MAX_OFFSET, (W / 2 - ball.x) * 0.3);
+        if (ball.y < edgeY) targetY = Math.min(CAMERA_MAX_OFFSET, (H / 2 - ball.y) * 0.3);
+        if (ball.y > H - edgeY) targetY = Math.max(-CAMERA_MAX_OFFSET, (H / 2 - ball.y) * 0.3);
+      }
+      targetX = Math.max(-CAMERA_MAX_OFFSET, Math.min(CAMERA_MAX_OFFSET, targetX + cameraImpactX));
+      targetY = Math.max(-CAMERA_MAX_OFFSET, Math.min(CAMERA_MAX_OFFSET, targetY + cameraImpactY));
+      if (!wallContactActive) {
+        const impactRecovery = Math.max(0, 1 - dt * 8);
+        cameraImpactX *= impactRecovery;
+        cameraImpactY *= impactRecovery;
+      }
+      const smooth = Math.min(1, dt * 5);
+      cameraOffsetX += (targetX - cameraOffsetX) * smooth;
+      cameraOffsetY += (targetY - cameraOffsetY) * smooth;
+    }
+
+    function triggerCameraImpact(normalX, normalY) {
+      const length = Math.hypot(normalX, normalY);
+      if (length === 0) return;
+      const scale = CAMERA_IMPACT_MAX_OFFSET / length;
+      let nextX = cameraImpactX + normalX * scale;
+      let nextY = cameraImpactY + normalY * scale;
+      const nextLength = Math.hypot(nextX, nextY);
+      if (nextLength > CAMERA_IMPACT_MAX_OFFSET) {
+        nextX *= CAMERA_IMPACT_MAX_OFFSET / nextLength;
+        nextY *= CAMERA_IMPACT_MAX_OFFSET / nextLength;
+      }
+      cameraImpactX = nextX;
+      cameraImpactY = nextY;
+    }
+
+    function getLaunchPowerRatio(dragRatio) {
+      if (dragRatio <= EARLY_DRAG_RATIO) {
+        return Math.pow(dragRatio, EARLY_LAUNCH_POWER_EXPONENT);
+      }
+      const earlyPower = Math.pow(EARLY_DRAG_RATIO, EARLY_LAUNCH_POWER_EXPONENT);
+      const lateRatio = (dragRatio - EARLY_DRAG_RATIO) / (1 - EARLY_DRAG_RATIO);
+      return earlyPower + (1 - earlyPower) * Math.pow(lateRatio, LAUNCH_POWER_EXPONENT);
+    }
+
+    function playBounce(playbackRate = 1, volumeMultiplier = 1) {
       // 优先使用空闲通道；全部占用时，新的笑声顶掉最早开始的那一个。
       clearInterval(laughFadeTimer);
       const now = performance.now();
@@ -283,22 +375,23 @@
       sound.preservesPitch = false;
       sound.mozPreservesPitch = false;
       sound.webkitPreservesPitch = false;
-      sound.volume = Number(volumeSlider.value);
+      voice.volumeMultiplier = volumeMultiplier;
+      sound.volume = Number(volumeSlider.value) * volumeMultiplier;
       voice.startedAt = now;
       sound.play().then(() => {
         // 部分浏览器在 play() 后会重置播放参数，再次强制设置。
         sound.playbackRate = playbackRate;
       }).catch(() => {
-        status.textContent = '音效被浏览器拦截，请先点击画布后再发射';
+        setStatus('音效被浏览器拦截，请先点击画布后再发射');
       });
     }
 
-    function playCollisionSound(playbackRate = 1) {
+    function playCollisionSound(playbackRate = 1, volumeMultiplier = 1) {
       if (braking || outroState !== 'idle') return false;
       const now = performance.now();
       if (now - lastCollisionSoundAt < 55) return false;
       lastCollisionSoundAt = now;
-      playBounce(playbackRate);
+      playBounce(playbackRate, volumeMultiplier);
       laughCount += 1;
       updateLaughCount(laughCount);
       animateLaughCount();
@@ -327,13 +420,15 @@
     function playCollectiveLaugh() {
       laughStartTimers.forEach(timer => clearTimeout(timer));
       laughStartTimers = [];
-      laughPool.forEach(({ audio }, index) => {
+      laughPool.forEach((voice, index) => {
+        const { audio } = voice;
         audio.pause();
         audio.currentTime = 0;
+        voice.volumeMultiplier = index === 0 ? 1 : 0.85;
         const playbackRate = index === 0 ? 1 : 1 + Math.random();
         audio.playbackRate = playbackRate;
         audio.defaultPlaybackRate = playbackRate;
-        audio.volume = Number(volumeSlider.value);
+        audio.volume = Number(volumeSlider.value) * voice.volumeMultiplier;
         const delay = index === 0 ? 0 : Math.random() * 1000;
         const timer = setTimeout(() => audio.play().catch(() => {}), delay);
         laughStartTimers.push(timer);
@@ -353,7 +448,7 @@
       targetBalls.forEach(target => triggerImpact(target, 0.9));
       triggerImpact(ball, 1);
       playCollectiveLaugh();
-      status.textContent = '所有奶球一起大笑！';
+      setStatus('万 变 不 离 其 宗', true);
     }
 
     function beginBallBrake() {
@@ -361,7 +456,7 @@
       braking = true;
       brakeElapsed = 0;
       fadeOutAllLaughs(1000);
-      status.textContent = '大奶球停下，小奶球紧急刹车……';
+      setStatus('记住...');
     }
 
     function limitSpeed(entity, maxSpeed) {
@@ -376,10 +471,12 @@
       clearInterval(laughFadeTimer);
       laughStartTimers.forEach(timer => clearTimeout(timer));
       laughStartTimers = [];
-      laughPool.forEach(({ audio }) => {
+      laughPool.forEach(voice => {
+        const { audio } = voice;
         audio.pause();
         audio.currentTime = 0;
         audio.playbackRate = 1;
+        voice.volumeMultiplier = 1;
         audio.volume = Number(volumeSlider.value);
       });
     }
@@ -447,7 +544,7 @@
     volumeSlider.addEventListener('input', () => {
       const volume = Number(volumeSlider.value);
       volumeText.textContent = `${Math.round(volume * 100)}%`;
-      laughPool.forEach(({ audio }) => audio.volume = volume);
+      laughPool.forEach(voice => voice.audio.volume = volume * voice.volumeMultiplier);
     });
 
     bgmVolumeSlider.addEventListener('input', () => {
@@ -465,33 +562,40 @@
     canvas.addEventListener('pointerdown', event => {
       startBgm();
       const p = pointerPosition(event);
-      if (ball.moving || braking || outroState !== 'idle' || Math.hypot(p.x - ball.x, p.y - ball.y) > ball.r * 2) return;
+      if (ball.moving || braking || outroState !== 'idle' || Math.hypot(p.x - ball.x, p.y - ball.y) > ball.r * BALL_TOUCH_RADIUS_MULTIPLIER) return;
       canvas.setPointerCapture(event.pointerId);
-      aiming = true; aimX = p.x; aimY = p.y;
-      status.textContent = '拖动瞄准，松开即可发射';
+      aiming = true; aimAtMax = false; dragStartX = p.x; dragStartY = p.y;
+      const displayPoint = getDisplayAimPoint(p);
+      aimX = displayPoint.x; aimY = displayPoint.y;
+      setStatus('拖动瞄准，松开即可发射');
       laughPool.forEach(({ audio }) => audio.load()); // 解锁浏览器对本地音频的用户手势限制
     });
 
     canvas.addEventListener('pointermove', event => {
       if (!aiming) return;
-      const p = pointerPosition(event);
-      aimX = p.x; aimY = p.y;
+      const rawPoint = pointerPosition(event);
+      const displayPoint = getDisplayAimPoint(rawPoint);
+      aimX = displayPoint.x; aimY = displayPoint.y;
+      const distance = Math.hypot(rawPoint.x - dragStartX, rawPoint.y - dragStartY);
+      aimAtMax = distance >= MAX_DRAG_DISTANCE - 0.5;
     });
 
     canvas.addEventListener('pointerup', event => {
       if (!aiming) return;
       aiming = false;
       const p = pointerPosition(event);
-      const dx = ball.x - p.x, dy = ball.y - p.y;
+      const dx = dragStartX - p.x, dy = dragStartY - p.y;
       const length = Math.hypot(dx, dy);
-      if (length < 8) { status.textContent = '拖动距离太短'; return; }
-      const effectiveLength = Math.max(0, length - LAUNCH_DISTANCE_OFFSET);
-      const speed = Math.min(MAX_LAUNCH_SPEED, effectiveLength * 5.2);
+      if (length < 8) { setStatus('拖动距离太短'); return; }
+      const effectiveLength = Math.max(0, Math.min(MAX_DRAG_DISTANCE, length) - LAUNCH_DISTANCE_OFFSET);
+      const maxEffectiveLength = MAX_DRAG_DISTANCE - LAUNCH_DISTANCE_OFFSET;
+      const dragRatio = Math.min(1, effectiveLength / maxEffectiveLength);
+      const speed = MAX_LAUNCH_SPEED * getLaunchPowerRatio(dragRatio);
       ball.vx = dx / length * speed;
       ball.vy = dy / length * speed;
       ball.moving = true;
       resetLaughCounter();
-      status.textContent = '众宾欢也……';
+      setStatus('众宾欢也……');
     });
 
     document.getElementById('reset').addEventListener('click', () => {
@@ -501,18 +605,19 @@
       outroState = 'idle'; outroElapsed = 0;
       braking = false; brakeElapsed = 0;
       ball.x = W / 2; ball.y = H / 2; ball.vx = 0; ball.vy = 0; ball.moving = false;
-      ball.impact = 0; ball.jump = 0; ball.scale = 1; ball.rotation = 0; ball.laughing = false;
+      ball.impact = 0; ball.jump = 0; ball.scale = 1; ball.rotation = 0; ball.laughing = false; ball.trail.length = 0;
       targetBalls.forEach((target, index) => {
         target.x = targetSpawns[index].x; target.y = targetSpawns[index].y;
         target.vx = 0; target.vy = 0;
         target.impact = 0; target.jump = 0; target.scale = 1; target.rotation = 0; target.laughing = false;
+        target.trail.length = 0;
       });
       obstacles.forEach(obstacle => {
         obstacle.x = obstacle.baseX; obstacle.y = obstacle.baseY; obstacle.rotation = 0;
         obstacle.mainSoundAt = -Infinity;
         obstacle.targetSoundAt.fill(-Infinity);
       });
-      status.textContent = '等待发射';
+      setStatus('等待发射');
     });
 
     // 对外保留的停止接口：后续其他逻辑可以直接调用 stopAllBalls()。
@@ -525,6 +630,24 @@
     }
 
     document.getElementById('stopAll').addEventListener('click', stopAllBalls);
+
+    function drawCameraUnderlay() {
+      ctx.fillStyle = '#17131b';
+      ctx.fillRect(0, 0, W, H);
+      if (hologramImage.complete && hologramImage.naturalWidth > 0) {
+        ctx.globalAlpha = 0.92;
+        ctx.drawImage(hologramImage, 0, 0, W, H);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawOuterFence() {
+      ctx.save();
+      ctx.strokeStyle = '#a86d4e';
+      ctx.lineWidth = 5;
+      ctx.strokeRect(3, 3, W - 6, H - 6);
+      ctx.restore();
+    }
 
     function drawBackground() {
       const pulse = beatPulse * 0.12 + barPulse * 0.08;
@@ -671,6 +794,36 @@
       return Math.abs(normalSpeed);
     }
 
+    // 奶球小拖尾：独立绘制，想关闭时注释掉 loop() 里的 drawBallTrail() 即可。
+    function drawBallTrail(entity, radius) {
+      const speed = Math.hypot(entity.vx, entity.vy);
+      if (!entity.trail) entity.trail = [];
+      if (speed < 18) {
+        entity.trail.length = 0;
+        return;
+      }
+      entity.trail.unshift({ x: entity.x, y: entity.y });
+      // 轨迹点保留更久，让拖尾销毁时间约为当前的 2 倍。
+      const maxTrailPoints = entity === ball ? 96 : 48;
+      if (entity.trail.length > maxTrailPoints) entity.trail.length = maxTrailPoints;
+      ctx.save();
+      ctx.fillStyle = '#fff0a8';
+      ctx.strokeStyle = '#ffd45a';
+      ctx.lineWidth = 1.5;
+      for (let index = entity.trail.length - 1; index >= 0; index -= 1) {
+        const point = entity.trail[index];
+        const progress = index / (entity.trail.length - 1);
+        const trailRadius = radius * (0.12 + (1 - progress) * 0.12);
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.ellipse(point.x, point.y, trailRadius, trailRadius, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     function drawTargetBalls() {
       targetBalls.forEach(target => {
         const drawScale = target.scale;
@@ -706,14 +859,14 @@
       ctx.strokeStyle = '#4b3031'; ctx.lineWidth = 12; ctx.setLineDash([22, 10]);
       ctx.lineDashOffset = -beatElapsed * 35;
       ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(targetX, targetY); ctx.stroke();
-      ctx.strokeStyle = '#ffd45a'; ctx.lineWidth = 8; ctx.setLineDash([22, 10]);
+      ctx.strokeStyle = aimAtMax ? '#8fe388' : '#ffd45a'; ctx.lineWidth = 8; ctx.setLineDash([22, 10]);
       ctx.lineDashOffset = -beatElapsed * 35;
       ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(targetX, targetY); ctx.stroke();
       ctx.strokeStyle = '#fff4a8'; ctx.lineWidth = 3; ctx.setLineDash([10, 22]);
       ctx.lineDashOffset = -beatElapsed * 35;
       ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(targetX, targetY); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#fff4a8'; ctx.strokeStyle = '#4b3031'; ctx.lineWidth = 4;
+      ctx.fillStyle = aimAtMax ? '#8fe388' : '#fff4a8'; ctx.strokeStyle = '#4b3031'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.arc(targetX, targetY, 10 + beatPulse * 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#ffcf52';
       ctx.beginPath(); ctx.arc(ball.x, ball.y, 7 + beatPulse * 3, 0, Math.PI * 2); ctx.fill();
@@ -770,6 +923,8 @@
       }
       backgroundOffsetX += (backgroundTargetX - backgroundOffsetX) * Math.min(1, dt * 4.2);
       backgroundOffsetY += (backgroundTargetY - backgroundOffsetY) * Math.min(1, dt * 4.2);
+      updateCamera(dt);
+      wallContactActive = false;
 
       obstacles.forEach(obstacle => {
         obstacle.x += obstacle.velocityX * dt;
@@ -795,7 +950,7 @@
           targetBalls.forEach(target => target.laughing = false);
           ball.laughing = false;
           resetLaughCounter();
-          status.textContent = '收尾完成，等待下一次发射';
+          setStatus('等待下一次发射');
         }
       }
       const updateImpact = entity => {
@@ -828,7 +983,7 @@
             const strength = Math.max(MIN_BALL_IMPACT_STRENGTH, Math.min(1, impact / 900));
             triggerImpact(targetBalls[i], strength);
             triggerImpact(targetBalls[j], strength);
-            playCollisionSound(SMALL_BALL_PLAYBACK_RATE);
+            playCollisionSound(SMALL_BALL_PLAYBACK_RATE, 0.85);
           }
         }
       }
@@ -840,7 +995,7 @@
           if (impact > 0) {
             const now = performance.now();
             if (now - obstacle.targetSoundAt[targetIndex] >= OBSTACLE_SOUND_COOLDOWN) {
-              if (playCollisionSound(SMALL_BALL_PLAYBACK_RATE)) {
+              if (playCollisionSound(SMALL_BALL_PLAYBACK_RATE, 0.85)) {
                 obstacle.targetSoundAt[targetIndex] = now;
                 triggerImpact(target, Math.min(1, Math.max(MIN_BALL_IMPACT_STRENGTH, impact / 500)));
                 spawnWallRipple(obstacle.x, obstacle.y);
@@ -866,11 +1021,15 @@
       ball.x += ball.vx * dt; ball.y += ball.vy * dt;
       let bounced = false;
       let wallImpact = 0;
-      if (ball.x - ball.r <= 0) { wallImpact = Math.max(wallImpact, Math.abs(ball.vx)); ball.x = ball.r; ball.vx = Math.abs(ball.vx); bounced = true; spawnWallRipple(0, ball.y); }
-      if (ball.x + ball.r >= W) { wallImpact = Math.max(wallImpact, Math.abs(ball.vx)); ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); bounced = true; spawnWallRipple(W, ball.y); }
-      if (ball.y - ball.r <= 0) { wallImpact = Math.max(wallImpact, Math.abs(ball.vy)); ball.y = ball.r; ball.vy = Math.abs(ball.vy); bounced = true; spawnWallRipple(ball.x, 0); }
-      if (ball.y + ball.r >= H) { wallImpact = Math.max(wallImpact, Math.abs(ball.vy)); ball.y = H - ball.r; ball.vy = -Math.abs(ball.vy); bounced = true; spawnWallRipple(ball.x, H); }
+      let wallNormalX = 0;
+      let wallNormalY = 0;
+      if (ball.x - ball.r <= 0) { wallImpact = Math.max(wallImpact, Math.abs(ball.vx)); ball.x = ball.r; ball.vx = Math.abs(ball.vx); bounced = true; wallNormalX += 1; spawnWallRipple(0, ball.y); }
+      if (ball.x + ball.r >= W) { wallImpact = Math.max(wallImpact, Math.abs(ball.vx)); ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); bounced = true; wallNormalX -= 1; spawnWallRipple(W, ball.y); }
+      if (ball.y - ball.r <= 0) { wallImpact = Math.max(wallImpact, Math.abs(ball.vy)); ball.y = ball.r; ball.vy = Math.abs(ball.vy); bounced = true; wallNormalY += 1; spawnWallRipple(ball.x, 0); }
+      if (ball.y + ball.r >= H) { wallImpact = Math.max(wallImpact, Math.abs(ball.vy)); ball.y = H - ball.r; ball.vy = -Math.abs(ball.vy); bounced = true; wallNormalY -= 1; spawnWallRipple(ball.x, H); }
       if (wallImpact > 0) {
+        wallContactActive = true;
+        triggerCameraImpact(wallNormalX, wallNormalY);
         const originalWallStrength = Math.max(BASE_MIN_WALL_IMPACT_STRENGTH, Math.min(1, wallImpact / 1500));
         const wallStrength = originalWallStrength * WALL_SCALE_MULTIPLIER;
         triggerImpact(ball, wallStrength);
@@ -919,10 +1078,13 @@
         const shakeStrength = 6 - fade * 2 + openingBurst * 24;
         const shakeX = (Math.random() * 2 - 1) * shakeStrength;
         const shakeY = (Math.random() * 2 - 1) * shakeStrength * 0.75;
-        gameWrap.style.transform = `translate3d(${shakeX.toFixed(2)}px, ${shakeY.toFixed(2)}px, 0)`;
+        canvas.style.setProperty('--shake-x', `${shakeX.toFixed(2)}px`);
+        canvas.style.setProperty('--shake-y', `${shakeY.toFixed(2)}px`);
       } else {
-        gameWrap.style.transform = '';
+        canvas.style.setProperty('--shake-x', '0px');
+        canvas.style.setProperty('--shake-y', '0px');
       }
+      updateZoomButtonPosition();
       // 齐笑开始时：闪一下，停顿，再快速闪两下。
       const flash = flashToggle.checked && outroState === 'laughing' ? Math.max(
         Math.max(0, 1 - Math.abs(outroElapsed - 100) / 70),
@@ -932,7 +1094,19 @@
       ) : 0;
       flashOverlay.style.opacity = (flash * 0.315).toFixed(3);
       ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
-      drawBackground(); drawWallRipples(); drawObstacles(); drawTargetBalls(); drawAim(); drawBall(); requestAnimationFrame(loop);
+      drawCameraUnderlay();
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(INNER_VIEWPORT_INSET, INNER_VIEWPORT_INSET, W - INNER_VIEWPORT_INSET * 2, H - INNER_VIEWPORT_INSET * 2);
+      ctx.clip();
+      ctx.translate(cameraOffsetX, cameraOffsetY);
+      drawBackground(); drawWallRipples(); drawObstacles();
+      drawBallTrail(ball, ball.r); // 小拖尾总开关：注释这一行即可关闭
+      targetBalls.forEach(target => drawBallTrail(target, TARGET_RADIUS));
+      drawTargetBalls(); drawAim(); drawBall();
+      ctx.restore();
+      drawOuterFence();
+      requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
   </script>
