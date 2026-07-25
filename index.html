@@ -64,7 +64,7 @@
     </label>
     <label class="audio-control">
       奶球摩擦力
-      <input id="damping" type="range" min="25" max="250" step="1" value="100" />
+      <input id="damping" type="range" min="10" max="250" step="1" value="100" />
       <span id="dampingText">100%</span>
     </label>
     <label class="audio-control toggle-control">
@@ -168,10 +168,10 @@
     const MIN_SCALE_PUNCH = 0.7; // 缩放效果保底倍率
     const MAX_SCALE_PUNCH = 1.1;
     const MAIN_SCALE_MULTIPLIER = 1.25;
-    const SMALL_BALL_PLAYBACK_RATE = 2.0;
+    const SMALL_BALL_PLAYBACK_RATE = 1.0;
     const BPM = 124;
     const BEAT_INTERVAL = 60 / BPM;
-    const OUTRO_DURATION = 5800;
+    const OUTRO_DURATION = 6800;
     const BRAKE_DURATION = 3;
     const IDLE_ROTATION_SPEED = 0.225;
     const BACKGROUND_DRIFT_RANGE = 42;
@@ -214,14 +214,13 @@
     // 大小奶球使用独立音效池，避免小球笑声占满大球通道。
     const MAX_SMALL_LAUGH_VOICES = 15;
     const MAX_MAIN_LAUGH_VOICES = 10;
-    const laughSources = [
-      'SFX_Nai_Laugh.mp3'
-    ];
-    function createLaughPool(size) {
+    const MAIN_LAUGH_SOURCE = 'SFX_Nai_Laugh.mp3';
+    const SMALL_LAUGH_SOURCE = 'SFX_Nai_Laugh_2x.mp3';
+    function createLaughPool(size, source) {
       return Array.from({ length: size }, (_, index) => {
-        const audio = new Audio(laughSources[index % laughSources.length]);
+        const audio = new Audio(source);
         audio.preload = 'auto';
-        // 关闭浏览器的音高补偿，让 playbackRate = 2 真正升高一个八度。
+        // 关闭浏览器的音高补偿；小奶球使用预先升高八度的音频文件。
         audio.preservesPitch = false;
         audio.mozPreservesPitch = false;
         audio.webkitPreservesPitch = false;
@@ -229,8 +228,8 @@
         return { audio, startedAt: 0, volumeMultiplier: 1 };
       });
     }
-    const smallLaughPool = createLaughPool(MAX_SMALL_LAUGH_VOICES);
-    const mainLaughPool = createLaughPool(MAX_MAIN_LAUGH_VOICES);
+    const smallLaughPool = createLaughPool(MAX_SMALL_LAUGH_VOICES, SMALL_LAUGH_SOURCE);
+    const mainLaughPool = createLaughPool(MAX_MAIN_LAUGH_VOICES, MAIN_LAUGH_SOURCE);
     let laughFadeTimer = 0;
     let laughStartTimers = [];
     const bgm = new Audio('BGM_zhiwudazhanjiangshi.mp3');
@@ -448,10 +447,14 @@
     function playCollectiveLaugh() {
       laughStartTimers.forEach(timer => clearTimeout(timer));
       laughStartTimers = [];
-      const playVoice = (voice, playbackRate, volumeMultiplier, delay) => {
+      const playVoice = (voice, playbackRate, volumeMultiplier, delay, source) => {
         const { audio } = voice;
         audio.pause();
         audio.currentTime = 0;
+        if (source) {
+          audio.src = source;
+          audio.load();
+        }
         voice.volumeMultiplier = volumeMultiplier;
         audio.playbackRate = playbackRate;
         audio.defaultPlaybackRate = playbackRate;
@@ -460,8 +463,8 @@
         laughStartTimers.push(timer);
       };
       // 齐笑中只播放一个大球声源，其余由小球声源承担。
-      playVoice(mainLaughPool[0], 1, 1, 0);
-      smallLaughPool.forEach(voice => playVoice(voice, 1 + Math.random(), 0.75, Math.random() * 1000));
+      playVoice(mainLaughPool[0], 1, 1, 0, MAIN_LAUGH_SOURCE);
+      smallLaughPool.slice(0, targetBalls.length).forEach(voice => playVoice(voice, 0.75 + Math.random() * 0.5, 0.6, Math.random() * 1200, SMALL_LAUGH_SOURCE));
     }
 
     function beginLaughOutro() {
