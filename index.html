@@ -182,7 +182,7 @@
     const BASE_MIN_WALL_IMPACT_STRENGTH = 0.45;
     const MIN_WALL_IMPACT_STRENGTH = BASE_MIN_WALL_IMPACT_STRENGTH * WALL_SCALE_MULTIPLIER;
     const MIN_BALL_IMPACT_STRENGTH = MIN_WALL_IMPACT_STRENGTH;
-    const COLLISION_BOOST = 0.05; // 球球碰撞后额外注入 2.5% 冲量
+    const COLLISION_BOOST = 0.055; // 球球碰撞后额外注入冲量
     const OBSTACLE_SOUND_COOLDOWN = 5000;
     const targetSpawns = [
       { x: 115, y: 125 }, { x: 255, y: 105 }, { x: 430, y: 130 },
@@ -211,21 +211,26 @@
         mainSoundAt: -Infinity
       };
     });
-    // 单次最多允许 50 个笑声音源同时存在；超出后由最早开始播放的音源让位。
-    const MAX_LAUGH_VOICES = 30;
+    // 大小奶球使用独立音效池，避免小球笑声占满大球通道。
+    const MAX_SMALL_LAUGH_VOICES = 15;
+    const MAX_MAIN_LAUGH_VOICES = 10;
     const laughSources = [
       'SFX_Nai_Laugh.mp3'
     ];
-    const laughPool = Array.from({ length: MAX_LAUGH_VOICES }, (_, index) => {
-      const audio = new Audio(laughSources[index % laughSources.length]);
-      audio.preload = 'auto';
-      // 关闭浏览器的音高补偿，让 playbackRate = 2 真正升高一个八度。
-      audio.preservesPitch = false;
-      audio.mozPreservesPitch = false;
-      audio.webkitPreservesPitch = false;
-      audio.volume = Number(volumeSlider.value);
-      return { audio, startedAt: 0, volumeMultiplier: 1 };
-    });
+    function createLaughPool(size) {
+      return Array.from({ length: size }, (_, index) => {
+        const audio = new Audio(laughSources[index % laughSources.length]);
+        audio.preload = 'auto';
+        // 关闭浏览器的音高补偿，让 playbackRate = 2 真正升高一个八度。
+        audio.preservesPitch = false;
+        audio.mozPreservesPitch = false;
+        audio.webkitPreservesPitch = false;
+        audio.volume = Number(volumeSlider.value);
+        return { audio, startedAt: 0, volumeMultiplier: 1 };
+      });
+    }
+    const smallLaughPool = createLaughPool(MAX_SMALL_LAUGH_VOICES);
+    const mainLaughPool = createLaughPool(MAX_MAIN_LAUGH_VOICES);
     let laughFadeTimer = 0;
     let laughStartTimers = [];
     const bgm = new Audio('BGM_zhiwudazhanjiangshi.mp3');
@@ -384,12 +389,12 @@
       return earlyPower + (1 - earlyPower) * Math.pow(lateRatio, LAUNCH_POWER_EXPONENT);
     }
 
-    function playBounce(playbackRate = 1, volumeMultiplier = 1) {
+    function playBounce(playbackRate = 1, volumeMultiplier = 1, pool = mainLaughPool) {
       // 优先使用空闲通道；全部占用时，新的笑声顶掉最早开始的那一个。
       clearInterval(laughFadeTimer);
       const now = performance.now();
-      const voice = laughPool.find(item => item.audio.paused || item.audio.ended)
-        || laughPool.reduce((oldest, item) => item.startedAt < oldest.startedAt ? item : oldest);
+      const voice = pool.find(item => item.audio.paused || item.audio.ended)
+        || pool.reduce((oldest, item) => item.startedAt < oldest.startedAt ? item : oldest);
       const sound = voice.audio;
       sound.pause();
       sound.currentTime = 0;
@@ -409,12 +414,12 @@
       });
     }
 
-    function playCollisionSound(playbackRate = 1, volumeMultiplier = 1) {
+    function playCollisionSound(playbackRate = 1, volumeMultiplier = 1, pool = mainLaughPool) {
       if (braking || outroState !== 'idle') return false;
       const now = performance.now();
       if (now - lastCollisionSoundAt < 55) return false;
       lastCollisionSoundAt = now;
-      playBounce(playbackRate, volumeMultiplier);
+      playBounce(playbackRate, volumeMultiplier, pool);
       laughCount += 1;
       updateLaughCount(laughCount);
       animateLaughCount();
@@ -443,19 +448,20 @@
     function playCollectiveLaugh() {
       laughStartTimers.forEach(timer => clearTimeout(timer));
       laughStartTimers = [];
-      laughPool.forEach((voice, index) => {
+      const playVoice = (voice, playbackRate, volumeMultiplier, delay) => {
         const { audio } = voice;
         audio.pause();
         audio.currentTime = 0;
-        voice.volumeMultiplier = index === 0 ? 1 : 0.85;
-        const playbackRate = index === 0 ? 1 : 1 + Math.random();
+        voice.volumeMultiplier = volumeMultiplier;
         audio.playbackRate = playbackRate;
         audio.defaultPlaybackRate = playbackRate;
         audio.volume = Number(volumeSlider.value) * voice.volumeMultiplier;
-        const delay = index === 0 ? 0 : Math.random() * 1000;
         const timer = setTimeout(() => audio.play().catch(() => {}), delay);
         laughStartTimers.push(timer);
-      });
+      };
+      // 齐笑中只播放一个大球声源，其余由小球声源承担。
+      playVoice(mainLaughPool[0], 1, 1, 0);
+      smallLaughPool.forEach(voice => playVoice(voice, 1 + Math.random(), 0.75, Math.random() * 1000));
     }
 
     function beginLaughOutro() {
@@ -516,7 +522,7 @@
       clearInterval(laughFadeTimer);
       laughStartTimers.forEach(timer => clearTimeout(timer));
       laughStartTimers = [];
-      laughPool.forEach(voice => {
+      [...smallLaughPool, ...mainLaughPool].forEach(voice => {
         const { audio } = voice;
         audio.pause();
         audio.currentTime = 0;
@@ -529,10 +535,11 @@
     function fadeOutAllLaughs(duration = 5000) {
       clearInterval(laughFadeTimer);
       const startTime = performance.now();
-      const startVolumes = laughPool.map(({ audio }) => audio.volume);
+      const allLaughVoices = [...smallLaughPool, ...mainLaughPool];
+      const startVolumes = allLaughVoices.map(({ audio }) => audio.volume);
       laughFadeTimer = setInterval(() => {
         const progress = Math.min(1, (performance.now() - startTime) / duration);
-        laughPool.forEach(({ audio }, index) => {
+        allLaughVoices.forEach(({ audio }, index) => {
           audio.volume = startVolumes[index] * (1 - progress);
         });
         if (progress >= 1) stopAllLaughs();
@@ -589,7 +596,7 @@
     volumeSlider.addEventListener('input', () => {
       const volume = Number(volumeSlider.value);
       volumeText.textContent = `${Math.round(volume * 100)}%`;
-      laughPool.forEach(voice => voice.audio.volume = volume * voice.volumeMultiplier);
+      [...smallLaughPool, ...mainLaughPool].forEach(voice => voice.audio.volume = volume * voice.volumeMultiplier);
     });
 
     bgmVolumeSlider.addEventListener('input', () => {
@@ -613,7 +620,7 @@
       const displayPoint = getDisplayAimPoint(p);
       aimX = displayPoint.x; aimY = displayPoint.y;
       setStatus('拖动瞄准，松开即可发射');
-      laughPool.forEach(({ audio }) => audio.load()); // 解锁浏览器对本地音频的用户手势限制
+      [...smallLaughPool, ...mainLaughPool].forEach(({ audio }) => audio.load()); // 解锁浏览器对本地音频的用户手势限制
     });
 
     canvas.addEventListener('pointermove', event => {
@@ -1028,7 +1035,7 @@
             const strength = Math.max(MIN_BALL_IMPACT_STRENGTH, Math.min(1, impact / 900));
             triggerImpact(targetBalls[i], strength);
             triggerImpact(targetBalls[j], strength);
-            playCollisionSound(SMALL_BALL_PLAYBACK_RATE, 0.85);
+            playCollisionSound(SMALL_BALL_PLAYBACK_RATE, 0.75, smallLaughPool);
           }
         }
       }
@@ -1040,7 +1047,7 @@
           if (impact > 0) {
             const now = performance.now();
             if (now - obstacle.targetSoundAt[targetIndex] >= OBSTACLE_SOUND_COOLDOWN) {
-              if (playCollisionSound(SMALL_BALL_PLAYBACK_RATE, 0.85)) {
+              if (playCollisionSound(SMALL_BALL_PLAYBACK_RATE, 0.75, smallLaughPool)) {
                 obstacle.targetSoundAt[targetIndex] = now;
                 triggerImpact(target, Math.min(1, Math.max(MIN_BALL_IMPACT_STRENGTH, impact / 500)));
                 spawnWallRipple(obstacle.x, obstacle.y);
