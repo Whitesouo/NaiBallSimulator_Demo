@@ -136,13 +136,7 @@
     const hellMode = document.getElementById('hellMode');
     const HINTS_URL = './laugh_lines.txt';
     const DEFAULT_HINT = '拖动奶球以发射奶球';
-    const FALLBACK_HINT_LINES = [
-      DEFAULT_HINT,
-      '人类一思考，奶龙就发笑 -奶兰龙德拉',
-      '奶球一滚，快乐就开始',
-      '今天也要笑着撞墙'
-    ];
-    let hintLines = FALLBACK_HINT_LINES.slice();
+    let hintLines = [];
     let lastHintIndex = -1;
     const autoModeButton = document.getElementById('autoModeButton');
     const settingsButton = document.getElementById('settingsButton');
@@ -164,10 +158,10 @@
           .split(/\r?\n/)
           .map(line => line.trim())
           .filter(Boolean);
-        if (hintLines.length === 0) hintLines = FALLBACK_HINT_LINES.slice();
+        if (hintLines.length === 0) hintLines = INLINE_HINT_LINES.slice();
       } catch (error) {
         console.warn(error);
-        hintLines = FALLBACK_HINT_LINES.slice();
+        hintLines = INLINE_HINT_LINES.slice();
       }
     }
 
@@ -182,8 +176,6 @@
       lastHintIndex = nextIndex;
       hint.textContent = hintLines[nextIndex];
     }
-
-    loadHintLines();
 
     function showModeToast() {
       clearTimeout(modeToastTimer);
@@ -1437,6 +1429,18 @@
       drawOuterFence();
       requestAnimationFrame(loop);
     }
+    // 本地备用文案：每行填写一句，直接修改这里即可。
+    const INLINE_HINT_LINES = [
+      DEFAULT_HINT,
+      '"人类一思考，奶龙就发笑" -奶兰龙德拉',
+      '"子非龙，安知龙之乐?" -孟龙',
+      '"别为打翻的奶龙哭泣" -阿龙',
+      '"不以奶喜，不以龙悲" -范奶淹',
+      '"别人笑我太疯癫，我是奶龙笑他人" -唐龙',
+      '"自由的龙儿是关不住的" -《笑声客的救赎》'
+    ];
+    hintLines = INLINE_HINT_LINES.slice();
+    loadHintLines();
     requestAnimationFrame(loop);
   </script>
 </body>
