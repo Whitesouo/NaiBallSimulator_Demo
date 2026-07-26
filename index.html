@@ -27,6 +27,19 @@
     .audio-control { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; color: #ffe1a4; font-size: 13px; }
     .audio-control input[type="range"] { width: 180px; accent-color: #ff8f65; }
     .audio-control input[type="number"] { width: 58px; padding: 3px 5px; color: #fff4df; background: #271f2b; border: 1px solid #8a6650; text-align: right; }
+    .control-row { position: relative; display: flex; align-items: flex-end; justify-content: center; gap: 8px; margin-top: 10px; }
+    .control-row > button { margin-top: 0; }
+    .settings-wrap { position: relative; }
+    #autoModeButton { background: #8fe388; color: #203c28; }
+    #autoModeButton:hover { background: #b5f2a5; }
+    #autoModeButton.active { background: #ff8f65; color: #27151a; }
+    #autoModeButton.active:hover { background: #ffb178; }
+    #settingsButton { width: 42px; height: 38px; padding: 6px; font-size: 21px; line-height: 1; }
+    .settings-menu { position: absolute; right: 0; bottom: calc(100% + 8px); display: none; flex-direction: column; align-items: center; gap: 2px; padding: 8px 12px; background: #271f2bee; border: 2px solid #8a6650; box-shadow: 4px 4px 0 #27151a; }
+    .settings-menu.open { display: flex; }
+    .settings-menu .audio-control { margin-top: 6px; }
+    #modeToast { position: fixed; left: 50%; top: 50%; z-index: 300; transform: translate(-50%, -50%); display: none; padding: 16px 24px; color: #fff4df; background: #315c35ee; border: 3px solid #8fe388; box-shadow: 4px 4px 0 #27151a; font-size: 22px; font-weight: 800; white-space: nowrap; pointer-events: none; }
+    #modeToast.show { display: block; }
     .toggle-control { width: 230px; justify-content: flex-start; gap: 5px; margin-left: auto; margin-right: auto; }
     .toggle-control input { width: auto; margin: 0; }
     .danger-toggle { color: #ff5d5d; font-size: 16px; font-weight: 700; text-shadow: 1px 1px 0 #3b1118; }
@@ -46,6 +59,8 @@
     body.zoomed .wrap > #speedDisplay,
     body.zoomed .wrap > .status,
     body.zoomed .wrap > .audio-control,
+    body.zoomed .wrap > .control-row,
+    body.zoomed .wrap > .settings-menu,
     body.zoomed .wrap > button:not(#zoomButton) { display: none; }
     body.zoomed #laughCounter { position: fixed; z-index: 90; margin: 0; }
     #game { --shake-x: 0px; --shake-y: 0px; transform: translate3d(var(--shake-x), var(--shake-y), 0); }
@@ -55,6 +70,7 @@
 <body>
   <button id="zoomButton" type="button">纯享模式</button>
   <div id="flashOverlay" aria-hidden="true"></div>
+  <div id="modeToast" role="status" aria-live="polite">自动奶龙模式下不可手动操作</div>
   <main class="wrap">
     <h1>奶球模拟器 Demo</h1>
     <p class="hint">拖动奶球以发射奶球</p>
@@ -62,21 +78,6 @@
     <canvas id="game" width="600" height="600"></canvas>
     <div id="status" class="status"><span id="statusText">等待发射</span></div>
     <div id="speedDisplay" aria-label="当前奶球运动速度">当前唐速：<span class="speed-value">0</span></div>
-    <label class="audio-control">
-      大笑音量
-      <input id="volume" type="range" min="0" max="1" step="0.01" value="0.10" />
-      <input id="volumeValue" class="value-input" type="number" min="0" max="100" step="1" value="10" aria-label="大笑音量数值" />%
-    </label>
-    <label class="audio-control">
-      BGM 音量
-      <input id="bgmVolume" type="range" min="0" max="1" step="0.01" value="0.50" />
-      <input id="bgmVolumeValue" class="value-input" type="number" min="0" max="100" step="1" value="50" aria-label="BGM 音量数值" />%
-    </label>
-    <label class="audio-control">
-      奶球摩擦力
-      <input id="damping" type="range" min="10" max="250" step="1" value="100" />
-      <input id="dampingValue" class="value-input" type="number" min="10" max="250" step="1" value="100" aria-label="奶球摩擦力数值" />%
-    </label>
     <label class="audio-control toggle-control">
       <input id="flashToggle" type="checkbox" checked />
       齐笑闪光
@@ -87,6 +88,29 @@
     </label>
     <button id="stopAll" type="button">停止所有奶球</button>
     <button id="reset" type="button">重新放置奶球</button>
+    <div class="control-row">
+      <button id="autoModeButton" type="button">启动自动奶龙</button>
+      <div class="settings-wrap">
+        <button id="settingsButton" type="button" aria-label="打开设置" aria-expanded="false">⚙</button>
+        <div id="settingsMenu" class="settings-menu" aria-hidden="true">
+        <label class="audio-control">
+          大笑音量
+          <input id="volume" type="range" min="0" max="1" step="0.01" value="0.10" />
+          <input id="volumeValue" class="value-input" type="number" min="0" max="100" step="1" value="10" aria-label="大笑音量数值" />%
+        </label>
+        <label class="audio-control">
+          BGM 音量
+          <input id="bgmVolume" type="range" min="0" max="1" step="0.01" value="0.50" />
+          <input id="bgmVolumeValue" class="value-input" type="number" min="0" max="100" step="1" value="50" aria-label="BGM 音量数值" />%
+        </label>
+        <label class="audio-control">
+          奶球摩擦力
+          <input id="damping" type="range" min="10" max="250" step="1" value="100" />
+          <input id="dampingValue" class="value-input" type="number" min="10" max="250" step="1" value="100" aria-label="奶球摩擦力数值" />%
+        </label>
+        </div>
+      </div>
+    </div>
   </main>
 
     <script>
@@ -109,7 +133,48 @@
     const dampingValue = document.getElementById('dampingValue');
     const flashToggle = document.getElementById('flashToggle');
     const hellMode = document.getElementById('hellMode');
+    const autoModeButton = document.getElementById('autoModeButton');
+    const settingsButton = document.getElementById('settingsButton');
+    const settingsMenu = document.getElementById('settingsMenu');
+    const modeToast = document.getElementById('modeToast');
+    let autoMode = false;
+    let modeToastTimer = 0;
+    let autoLaunchPhase = 'idle';
+    let autoLaunchElapsed = 0;
+    let autoLaunchVx = 0;
+    let autoLaunchVy = 0;
     let zoomed = false;
+
+    function showModeToast() {
+      clearTimeout(modeToastTimer);
+      modeToast.classList.add('show');
+      modeToastTimer = setTimeout(() => modeToast.classList.remove('show'), 2000);
+    }
+
+    autoModeButton.addEventListener('click', () => {
+      autoMode = !autoMode;
+      autoModeButton.classList.toggle('active', autoMode);
+      autoModeButton.textContent = autoMode ? '关闭自动奶龙' : '启动自动奶龙';
+      if (autoMode) {
+        aiming = false;
+        autoLaunchPhase = 'idle';
+        autoLaunchElapsed = 0;
+        showModeToast();
+        if (!ball.moving && !braking && outroState === 'idle') {
+          beginAutoLaunchSequence();
+        }
+      } else {
+        aiming = false;
+        autoLaunchPhase = 'idle';
+        autoLaunchElapsed = 0;
+      }
+    });
+
+    settingsButton.addEventListener('click', () => {
+      const open = settingsMenu.classList.toggle('open');
+      settingsButton.setAttribute('aria-expanded', String(open));
+      settingsMenu.setAttribute('aria-hidden', String(!open));
+    });
 
     function updateZoomButtonPosition() {
       const rect = canvas.getBoundingClientRect();
@@ -544,6 +609,63 @@
       setStatus('记住...');
     }
 
+    function launchBall(vx, vy) {
+      if (ball.moving || braking || outroState !== 'idle') return false;
+      ball.vx = vx;
+      ball.vy = vy;
+      limitSpeed(ball, MAX_LAUNCH_SPEED);
+      ball.moving = true;
+      resetLaughCounter();
+      setStatus('众宾欢也……');
+      return true;
+    }
+
+    function launchBallRandomly() {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = MAX_LAUNCH_SPEED * (0.5 + Math.random() * 0.5);
+      return launchBall(Math.cos(angle) * speed, Math.sin(angle) * speed);
+    }
+
+    function beginAutoLaunchSequence() {
+      if (!autoMode || ball.moving || braking || outroState !== 'idle') return;
+      autoLaunchPhase = 'cooldown';
+      autoLaunchElapsed = 0;
+      aiming = false;
+      setStatus('自动奶龙准备中……');
+    }
+
+    function beginAutoAim() {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = MAX_LAUNCH_SPEED * (0.5 + Math.random() * 0.5);
+      autoLaunchVx = Math.cos(angle) * speed;
+      autoLaunchVy = Math.sin(angle) * speed;
+      const aimDistance = MAX_AIM_DISTANCE * (speed / MAX_LAUNCH_SPEED);
+      dragStartX = ball.x;
+      dragStartY = ball.y;
+      aimX = ball.x - Math.cos(angle) * aimDistance;
+      aimY = ball.y - Math.sin(angle) * aimDistance;
+      aimAtMax = speed >= MAX_LAUNCH_SPEED;
+      aiming = true;
+      autoLaunchPhase = 'aiming';
+      autoLaunchElapsed = 0;
+      setStatus('自动瞄准中……');
+    }
+
+    function updateAutoLaunchSequence(dt) {
+      if (!autoMode) return;
+      if (autoLaunchPhase === 'cooldown') {
+        autoLaunchElapsed += dt;
+        if (autoLaunchElapsed >= 2.5) beginAutoAim();
+      } else if (autoLaunchPhase === 'aiming') {
+        autoLaunchElapsed += dt;
+        if (autoLaunchElapsed >= 2) {
+          aiming = false;
+          autoLaunchPhase = 'idle';
+          launchBall(autoLaunchVx, autoLaunchVy);
+        }
+      }
+    }
+
     function limitSpeed(entity, maxSpeed) {
       const speed = Math.hypot(entity.vx, entity.vy);
       if (speed <= maxSpeed || speed === 0) return;
@@ -700,7 +822,7 @@
     canvas.addEventListener('pointerdown', event => {
       startBgm();
       const p = pointerPosition(event);
-      if (ball.moving || braking || outroState !== 'idle' || Math.hypot(p.x - ball.x, p.y - ball.y) > ball.r * BALL_TOUCH_RADIUS_MULTIPLIER) return;
+      if (autoMode || ball.moving || braking || outroState !== 'idle' || Math.hypot(p.x - ball.x, p.y - ball.y) > ball.r * BALL_TOUCH_RADIUS_MULTIPLIER) return;
       canvas.setPointerCapture(event.pointerId);
       aiming = true; aimAtMax = false; dragStartX = p.x; dragStartY = p.y;
       const displayPoint = getDisplayAimPoint(p);
@@ -729,19 +851,22 @@
       const maxEffectiveLength = MAX_DRAG_DISTANCE - LAUNCH_DISTANCE_OFFSET;
       const dragRatio = Math.min(1, effectiveLength / maxEffectiveLength);
       const speed = MAX_LAUNCH_SPEED * getLaunchPowerRatio(dragRatio);
-      ball.vx = dx / length * speed;
-      ball.vy = dy / length * speed;
-      ball.moving = true;
-      resetLaughCounter();
-      setStatus('众宾欢也……');
+      launchBall(dx / length * speed, dy / length * speed);
     });
 
     document.getElementById('reset').addEventListener('click', () => {
+      autoMode = false;
+      autoModeButton.classList.remove('active');
+      autoModeButton.textContent = '启动自动奶龙';
+      autoLaunchPhase = 'idle';
+      autoLaunchElapsed = 0;
+      aiming = false;
       stopAllLaughs();
       resetLaughCounter();
       wallRipples.length = 0;
       outroState = 'idle'; outroElapsed = 0;
       braking = false; brakeElapsed = 0;
+      aiming = false; autoLaunchPhase = 'idle'; autoLaunchElapsed = 0;
       ball.x = W / 2; ball.y = H / 2; ball.vx = 0; ball.vy = 0; ball.moving = false;
       ball.impact = 0; ball.jump = 0; ball.scale = 1; ball.rotation = 0; ball.laughing = false; ball.trail.length = 0;
       targetBalls.forEach((target, index) => {
@@ -1063,6 +1188,7 @@
       backgroundOffsetY += (backgroundTargetY - backgroundOffsetY) * Math.min(1, dt * 4.2);
       updateCamera(dt);
       wallContactActive = false;
+      updateAutoLaunchSequence(dt);
 
       obstacles.forEach(obstacle => {
         obstacle.x += obstacle.velocityX * dt;
@@ -1088,7 +1214,11 @@
           targetBalls.forEach(target => target.laughing = false);
           ball.laughing = false;
           resetLaughCounter();
-          setStatus('等待下一次发射');
+          if (autoMode) {
+            beginAutoLaunchSequence();
+          } else {
+            setStatus('等待下一次发射');
+          }
         }
       }
       const updateImpact = entity => {
