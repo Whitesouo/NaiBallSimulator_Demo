@@ -354,6 +354,7 @@
     bgm.preload = 'auto';
     bgm.volume = Number(bgmVolumeSlider.value) * AUDIO_GAIN;
     let bgmStarted = false;
+    let bgmStarting = false;
     let beatElapsed = 0;
     let beatIndex = -1;
     let beatPulse = 0;
@@ -732,11 +733,21 @@
     }
 
     function startBgm() {
-      if (bgmStarted) return;
-      bgmStarted = true;
-      bgm.play().catch(() => {
-        bgmStarted = false;
-      });
+      if (bgmStarted || bgmStarting) return;
+      bgmStarting = true;
+      const playPromise = bgm.play();
+      if (playPromise && typeof playPromise.then === 'function') {
+        playPromise.then(() => {
+          bgmStarted = true;
+          bgmStarting = false;
+        }).catch(() => {
+          bgmStarted = false;
+          bgmStarting = false;
+        });
+      } else {
+        bgmStarted = true;
+        bgmStarting = false;
+      }
     }
 
     function resolveBallCollision(first, second, firstRadius, secondRadius, firstMass = 1, secondMass = 1) {
@@ -817,7 +828,10 @@
       syncDampingFromSlider();
     });
 
-    document.addEventListener('pointerdown', startBgm, { once: true });
+    // 页面任意位置的首次交互都尝试启动 BGM，兼容桌面端和移动端浏览器。
+    document.addEventListener('pointerdown', startBgm, { capture: true });
+    document.addEventListener('touchstart', startBgm, { capture: true, passive: true });
+    document.addEventListener('click', startBgm, { capture: true });
 
     canvas.addEventListener('pointerdown', event => {
       startBgm();
