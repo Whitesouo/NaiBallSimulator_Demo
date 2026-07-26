@@ -118,6 +118,7 @@
     const ctx = canvas.getContext('2d');
     const status = document.getElementById('status');
     const statusText = document.getElementById('statusText');
+    const hint = document.querySelector('.hint');
     const setStatus = (text, collectiveLaugh = false) => { statusText.textContent = text; status.classList.toggle('collective-laugh', collectiveLaugh); };
     const zoomButton = document.getElementById('zoomButton');
     const flashOverlay = document.getElementById('flashOverlay');
@@ -133,6 +134,16 @@
     const dampingValue = document.getElementById('dampingValue');
     const flashToggle = document.getElementById('flashToggle');
     const hellMode = document.getElementById('hellMode');
+    const HINTS_URL = './laugh_lines.txt';
+    const DEFAULT_HINT = '拖动奶球以发射奶球';
+    const FALLBACK_HINT_LINES = [
+      DEFAULT_HINT,
+      '人类一思考，奶龙就发笑 -奶兰龙德拉',
+      '奶球一滚，快乐就开始',
+      '今天也要笑着撞墙'
+    ];
+    let hintLines = FALLBACK_HINT_LINES.slice();
+    let lastHintIndex = -1;
     const autoModeButton = document.getElementById('autoModeButton');
     const settingsButton = document.getElementById('settingsButton');
     const settingsMenu = document.getElementById('settingsMenu');
@@ -144,6 +155,35 @@
     let autoLaunchVx = 0;
     let autoLaunchVy = 0;
     let zoomed = false;
+
+    async function loadHintLines() {
+      try {
+        const response = await fetch(HINTS_URL, { cache: 'no-cache' });
+        if (!response.ok) throw new Error(`文案表加载失败：${response.status}`);
+        hintLines = (await response.text())
+          .split(/\r?\n/)
+          .map(line => line.trim())
+          .filter(Boolean);
+        if (hintLines.length === 0) hintLines = FALLBACK_HINT_LINES.slice();
+      } catch (error) {
+        console.warn(error);
+        hintLines = FALLBACK_HINT_LINES.slice();
+      }
+    }
+
+    function updateRandomHint() {
+      if (hintLines.length === 0) return;
+      let nextIndex = Math.floor(Math.random() * hintLines.length);
+      if (hintLines.length > 1) {
+        while (nextIndex === lastHintIndex) {
+          nextIndex = Math.floor(Math.random() * hintLines.length);
+        }
+      }
+      lastHintIndex = nextIndex;
+      hint.textContent = hintLines[nextIndex];
+    }
+
+    loadHintLines();
 
     function showModeToast() {
       clearTimeout(modeToastTimer);
@@ -1228,6 +1268,7 @@
           targetBalls.forEach(target => target.laughing = false);
           ball.laughing = false;
           resetLaughCounter();
+          updateRandomHint();
           if (autoMode) {
             beginAutoLaunchSequence();
           } else {
